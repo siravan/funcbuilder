@@ -244,7 +244,7 @@ class Model:
         )"""
 
     def compile(self, dst, prog, mem, vt):
-        for eq in self.eqs:
+        for eq in self.eqs:            
             eq.compile(dst, prog, mem, vt)
 
         for eq in self.odes:

@@ -7,42 +7,49 @@ tree = pyengine.tree
 
 class Builder:
     def __init__(self, *states):
-        self.model = tree.Model(
-            tree.Var("$_"),  # iv
-            [tree.Var(x) for x in states],  # states
-            [],  # params
-            [],  # obs
-            [],  # eqs
-            [],  # odes
-        )
-        
-    def states(self):
-        return self.model.states        
+        self.states = [tree.Var(x) for x in states]
+        self.obs = []
+        self.eqs = []
+        self.hits = {}
         
     def new_var(self):
-        k = len(self.model.obs)
+        k = len(self.obs)
         v = tree.Var(f"${k}")
-        self.model.obs.append(v)
+        self.obs.append(v)
+        self.hits[v] = 0
         return v
         
+    def prep(self, a):
+        if isinstance(a, numbers.Number):
+            return tree.Const(a)            
+        if a in self.obs:            
+            self.hits[a] += 1            
+        return a                    
+        
     def append_unary(self, op, a):
+        a = self.prep(a)        
         v = self.new_var()
-        self.model.eqs.append(tree.Eq(v, tree.Unary(op, a)))
+        self.eqs.append(tree.Eq(v, tree.Unary(op, a)))
         return v        
         
     def append_binary(self, op, a, b):
+        a = self.prep(a)
+        b = self.prep(b)        
         v = self.new_var()
-        self.model.eqs.append(tree.Eq(v, tree.Binary(op, a, b)))
+        self.eqs.append(tree.Eq(v, tree.Binary(op, a, b)))
         return v
         
     def append_ifelse(self, cond, a, b):
+        cond = self.prep(cond)
+        a = self.prep(a)
+        b = self.prep(b)
         v = self.new_var()
-        self.model.eqs.append(tree.Eq(v, tree.IfElse(cond, a, b)))
+        self.eqs.append(tree.Eq(v, tree.IfElse(cond, a, b)))
         return v        
         
     def add(self, *a):
-        if len(a) == 1:
-            return a[0]
+        if len(a) == 1:            
+            return self.prep(a[0])
         elif len(a) > 2:
             t = self.add(*a[1:])
             return self.append_binary("plus", a[0], t)
@@ -52,9 +59,9 @@ class Builder:
     def sub(self, a, b):
         return self.append_binary("minus", a, b)        
         
-    def mul(self, a, b):
+    def mul(self, *a):
         if len(a) == 1:
-            return a[0]
+            return self.prep(a[0])
         elif len(a) > 2:
             t = self.add(*a[1:])
             return self.append_binary("times", a[0], t)
@@ -166,15 +173,62 @@ class Builder:
     def logical_xor(self, a, b):
         return self.append_binary("xor", a, b)                        
         
-    def iflese(self, cond, a, b):
+    def ifelse(self, cond, a, b):
         return self.append_ifelse(cond, a, b)                    
         
     def compile(self, y):
-        indices = [i for i, v in enumerate(self.model.obs) if v == y]        
-        if len(indices) == 0:
-            raise ValueError(f"return variable {v} not found")
-        compiler = pyengine.PyCompiler(self.model, ty="native")
-        return BuiltFunc(compiler, indices[0])  
+        try:
+            eqs = self.arborize(y)
+            
+            model = tree.Model(
+                tree.Var("$_"), # iv
+                self.states,    # states
+                [],             # params
+                self.obs,       # obs
+                eqs,            # eqs
+                [],             # odes
+            )
+            
+            idx = self.obs.index(y)
+            compiler = pyengine.PyCompiler(model, ty="native")
+            return BuiltFunc(compiler, idx)  
+        except:
+            raise ValueError(f"return variable {y} not found")
+            
+    def leaf(self, eqs, y, v):
+        try:        
+            if v != y and self.hits[v] == 1:
+                idx = self.obs.index(v)
+                u = eqs[idx].rhs
+                eqs[idx] = None
+                return u
+        except:
+            return v
+        return v                            
+
+    def arborize(self, y):
+        eqs = []
+        for i, eq in enumerate(self.eqs):                        
+            if isinstance(eq.rhs, tree.Unary):
+                eqs.append(tree.Eq(eq.lhs, tree.Unary(
+                    eq.rhs.op, 
+                    self.leaf(eqs, y, eq.rhs.arg)
+            )))
+            elif isinstance(eq.rhs, tree.Binary):
+                eqs.append(tree.Eq(eq.lhs, tree.Binary(
+                    eq.rhs.op, 
+                    self.leaf(eqs, y, eq.rhs.left),
+                    self.leaf(eqs, y, eq.rhs.right),
+                )))
+            elif isinstance(eq.rhs, tree.IfElse):
+                eqs.append(tree.Eq(eq.lhs, tree.IfElse(                        
+                    self.leaf(eqs, y, eq.rhs.cond),
+                    self.leaf(eqs, y, eq.rhs.true_val),
+                    self.leaf(eqs, y, eq.rhs.false_val)
+            )))                    
+            else:
+                eqs.append(tree.Eq(eq.lhs, eq.rhs))         
+        return [eq for eq in eqs if eq is not None]
         
         
 class BuiltFunc:

@@ -124,7 +124,7 @@ def compile_jac(iv, states, odes, params=None, ty="native", use_simd=False):
 def FuncBuilder(*states):
     if pyengine.can_compile():
         B = builder.Builder(*states)
-        return B, B.states()
+        return B, B.states
     else:
         raise ValueError("unsupported platform")
 
