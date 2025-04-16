@@ -217,7 +217,7 @@ class Builder:
         """Merges expression trees if possible"""
         eqs = []
 
-        for i, eq in enumerate(self.eqs):
+        for eq in self.eqs:
             if isinstance(eq.rhs, tree.Unary):
                 eqs.append(
                     tree.Eq(
@@ -258,7 +258,6 @@ class BuiltFunc:
     def __init__(self, compiler, idx):
         self.compiler = compiler
         self.count_states = self.compiler.count_states
-        self.count_params = self.compiler.count_params
         self.count_obs = self.compiler.count_obs
         self.idx = idx
 
@@ -273,23 +272,10 @@ class BuiltFunc:
             self.compiler.execute()
             return float(self.compiler.obs[self.idx])
         else:
-            return self.call_vectorized(*args)
+            raise ValueError("vectorized call not supported yet")
+            
+    def dumps(self):
+        self.compiler.dumps()            
 
-    def call_vectorized(self, *args):
-        assert len(args) >= self.count_states
-        shape = args[0].shape
-        n = args[0].size
-        h = max(self.count_states, self.count_obs)
-        buf = np.zeros((h, n), dtype="double")
-
-        for i in range(self.count_states):
-            assert args[i].shape == shape
-            buf[i, :] = args[i].ravel()
-
-        self.compiler.execute_vectorized(buf)
-
-        res = buf[self.idx, :].reshape(shape)
-        return res
-
-    def dump(self, name, what="scalar"):
-        self.compiler.dump(name, what=what)
+    def dump(self, name):
+        self.compiler.dump(name)

@@ -27,39 +27,20 @@ def arch():
 
 class Memory:
     def __init__(self, model):
-        self.names = ["0.0", "1.0", "-1.0", "-0.0"]
-        self.vals = [0.0, 1.0, -1.0, -0.0]
-
-        self.names.append(model.iv.name)
-        self.vals.append(0.0)
+        self.consts = [0.0, 1.0, -1.0, -0.0] 
+        self.names = []
 
         self.first_state = len(self.names)
         self.count_states = len(model.states)
 
         for var in model.states:
             self.names.append(var.name)
-            self.vals.append(0.0)
-
-        self.first_param = len(self.names)
-        self.count_params = len(model.params)
-
-        for var in model.params:
-            self.names.append(var.name)
-            self.vals.append(0.0)
 
         self.first_obs = len(self.names)
         self.count_obs = len(model.obs)
 
         for var in model.obs:
             self.names.append(var.name)
-            self.vals.append(0.0)
-
-        self.first_diff = len(self.names)
-        self.count_diffs = len(model.odes)
-
-        for i in range(len(model.odes)):
-            self.names.append(f"δ{model.states[i].name}")
-            self.vals.append(0.0)
 
         self.stack_ptr = 0
         self.stack_size = 0
@@ -71,16 +52,15 @@ class Memory:
         return self.names.index(f"δ{name}")
 
     def mem(self):
-        return np.asarray(self.vals)
+        return np.zeros(self.count_states + self.count_obs, dtype=np.float64)
 
     def constant(self, val):
         val = float(val)
         try:
-            return self.names.index(str(val))
+            return self.consts.index(val)
         except:
-            self.names.append(str(val))
-            self.vals.append(val)
-            return len(self.vals) - 1
+            self.consts.append(val)
+            return len(self.consts) - 1
 
     def push(self):
         self.stack_ptr += 1
@@ -272,21 +252,6 @@ class PyCompiler:
         self.mem = mem
         self.prog = prog
 
-        vprog = self.assembler(ty)(mem)
-        vec = vprog.vectorize()
-
-        fac = ctypes.CFUNCTYPE(
-            ctypes.c_size_t,
-            ctypes.c_size_t,  # address of the heap
-            ctypes.c_size_t,  # address of the virtual table
-            ctypes.c_size_t,  # address of the 2D buffer (buf)
-            ctypes.c_size_t,  # number of vectorization repeats (# columns of buf)
-            ctypes.c_size_t,  # func
-        )
-
-        self.vcode = Code(vprog.buf())
-        self.vfunc = fac(self.vcode.addr)
-        self.vprog = vprog
         self.populate()
 
     def __del__(self):
@@ -322,44 +287,23 @@ class PyCompiler:
     def populate(self):
         first_state = self.mem.first_state
         self.first_state = first_state
-        first_param = self.mem.first_param
         first_obs = self.mem.first_obs
-        first_diff = self.mem.first_diff
 
         self.count_states = self.mem.count_states
-        self.count_params = self.mem.count_params
         self.count_obs = self.mem.count_obs
-        self.count_diffs = self.mem.count_diffs
 
         self.states = self.heap[first_state : first_state + self.count_states]
-        self.params = self.heap[first_param : first_param + self.count_params]
         self.obs = self.heap[first_obs : first_obs + self.count_obs]
-        self.diffs = self.heap[first_diff : first_diff + self.count_diffs]
+        
+    def dumps(self):
+        return self.prog.buf().hex()
 
-    def dump(self, name=None, what="scalar"):
-        if what == "scalar":
-            buf = self.prog.buf()
-        elif what == "vectorized":
-            buf = self.vprog.buf
-        else:
-            raise ValueError("undefined `what`")
-
+    def dump(self, name=None):
         with open(name, "wb") as fd:
-            fd.write(buf)
+            fd.write(prog.buf)
 
-        return buf
-
-    def execute(self, t=0.0):
+    def execute(self):
         if self.can_run:
-            self.heap[self.first_state - 1] = t
             self.func(self.heap_ptr, self.table_ptr)
 
-    def execute_vectorized(self, buf):
-        if self.can_run:
-            self.vfunc(
-                self.heap_ptr,
-                self.table_ptr,
-                ctypes.addressof(ctypes.c_long.from_buffer(buf)),
-                ctypes.c_size_t(buf.shape[1]),
-                self.code.addr,
-            )
+

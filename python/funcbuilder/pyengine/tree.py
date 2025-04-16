@@ -183,7 +183,7 @@ class Const:
         return f"Const({self.val})"
 
     def compile(self, dst, prog, mem, vt):
-        prog.load_mem(dst, mem.constant(self.val))
+        prog.load_const(dst, mem.constant(self.val))
 
 
 class Var:
@@ -226,28 +226,19 @@ class EqDiff:
 
 class Model:
     def __init__(self, iv, states, params, obs, eqs, odes):
-        self.iv = iv
         self.states = states
-        self.params = params
         self.obs = obs
-        self.odes = odes
         self.eqs = eqs
 
     def __repr__(self):
         return f"""Model(
-            iv: {self.iv}
             states: {self.states}
-            params: {self.params}
             obs: {self.obs}
-            eqs: {self.eqs}
-            odes: {self.odes})
+            eqs: {self.eqs})
         )"""
 
     def compile(self, dst, prog, mem, vt):
         for eq in self.eqs:
-            eq.compile(dst, prog, mem, vt)
-
-        for eq in self.odes:
             eq.compile(dst, prog, mem, vt)
 
         # we need to prepend and not append prologue
@@ -255,6 +246,7 @@ class Model:
         # after compiling the body of the function
         prog.prepend_prologue()
         prog.append_epilogue()
+        prog.append_text_section(mem.consts, vt.vt())
 
 
 def is_pure(op):
@@ -282,244 +274,4 @@ def is_pure(op):
     return op in ops
 
 
-# ******************** Lowering ***********************
 
-
-def lower(y):
-    if y.is_Number or isinstance(y, numbers.Number):
-        return Const(y)
-    elif y.is_Symbol:
-        return Var(y)
-    elif y.is_Relational:
-        return relational(y)
-    elif y.is_Boolean:
-        return boolean(y)
-    elif y.is_Piecewise:
-        return piecewise(y)
-    else:
-        return lower_tree(y)
-
-
-def lower_tree(y):
-    if y.is_Add:
-        return lower_add(y)
-    elif y.is_Mul:
-        return lower_mul(y)
-    elif y.is_Pow:
-        return lower_pow(y)
-    elif y.is_Function:
-        if len(y.args) == 1:
-            return Unary(operation(y.func), lower(y.args[0]))
-        elif len(y.args) == 2:
-            return Binary(operation(y.func), lower(y.args[0]), lower(y.args[1]))
-    raise ValueError(f"unrecognized expression: {y}")
-
-
-def lower_add(y):
-    assert y.is_Add
-    if len(y.args) == 1:
-        return lower(y.args[0])
-    if len(y.args) == 2:
-        return Binary("plus", lower(y.args[0]), lower(y.args[1]))
-    else:
-        return Binary("plus", lower(y.args[0]), lower(y.func(*y.args[1:])))
-
-
-def lower_mul(y):
-    assert y.is_Mul
-    if len(y.args) == 2 and y.args[1].is_Pow and y.args[1].args[1] == -1:
-        return Binary("divide", lower(y.args[0]), lower(y.args[1].args[0]))
-    if len(y.args) == 2:
-        return Binary("times", lower(y.args[0]), lower(y.args[1]))
-    else:
-        return Binary("times", lower(y.args[0]), lower(y.func(*y.args[1:])))
-
-
-def lower_pow(y):
-    assert y.is_Pow
-    power = y.args[1]
-    arg = y.args[0]
-
-    if power == 2:
-        return Unary("square", lower(arg))
-    elif power == 3:
-        return Unary("cube", lower(arg))
-    elif power == -1:
-        return Unary("recip", lower(arg))
-    elif power == -2:
-        return Unary("recip", lower(arg**2))
-    elif power == -3:
-        return Unary("recip", lower(arg**3))
-    elif power == Rational(1, 2):
-        return Unary("root", lower(arg))
-    elif power == Rational(3, 2):
-        return Unary("root", lower(arg**3))
-    else:
-        return Binary("power", lower(y.args[0]), lower(y.args[1]))
-
-
-def operation(func):
-    op = str(func)
-    if func == sqrt:
-        op = "root"
-    elif func == log:
-        op = "ln"  # this is confusing but sympy uses `log` for natural logarithm
-    elif func == Abs:
-        op = "abs"
-    elif func == asin:
-        op = "arcsin"
-    elif func == acos:
-        op = "arccos"
-    elif func == atan:
-        op = "arctan"
-    elif func == asinh:
-        op = "arcsinh"
-    elif func == acosh:
-        op = "arccosh"
-    elif func == atanh:
-        op = "arctanh"
-
-    return op
-
-
-def relational(y):
-    f = y.func
-    op = ""
-
-    if f == LessThan:
-        op = "lt"
-    elif f == StrictLessThan:
-        op = "leq"
-    elif f == GreaterThan:
-        op = "gt"
-    elif f == StrictGreaterThan:
-        op = "geq"
-    elif f == Equality:
-        op = "eq"
-    elif f == Unequality:
-        op = "neq"
-    else:
-        raise ValueError("unrecognized relational operator")
-
-    return Binary(op, lower(y.args[0]), lower(y.args[1]))
-
-
-def boolean(y):
-    f = y.func
-    op = ""
-
-    if f == And:
-        op = "and"
-    elif f == Or:
-        op = "or"
-    elif f == Xor:
-        op = "xor"
-    else:
-        raise ValueError("unrecognized boolean operator")
-
-    return Binary(op, lower(y.args[0]), lower(y.args[1]))
-
-
-def piecewise(y):
-    cond = y.args[0][1]
-    x1 = y.args[0][0]
-
-    if len(y.args) == 1:
-        return expr(x1)
-    if len(y.args) == 2:
-        x2 = y.args[1][0]
-    else:
-        x2 = piecewise(*y.args[1:])
-
-    return IfElse(lower(cond), lower(x1), lower(x2))
-
-
-def model(states, eqs, params=None, obs=None):
-    if not isinstance(states, list):
-        states = [states]
-
-    if not isinstance(eqs, list):
-        eqs = [eqs]
-
-    if params is None:
-        params = []
-
-    if obs is None:
-        obs = [f"${i}" for i in range(len(eqs))]
-
-    model = Model(
-        Var("$_"),  # iv
-        [Var(x) for x in states],  # states
-        [Var(x) for x in params],  # params
-        [Var(x) for x in obs],  # obs
-        [Eq(Var(lhs), lower(rhs)) for (lhs, rhs) in zip(obs, eqs)],  # eqs
-        [],  # odes
-    )
-
-    return model
-
-
-def model_ode(iv, states, odes, params=None):
-    try:
-        states = list(states)
-    except TypeError:
-        states = [states]
-
-    try:
-        odes = list(odes)
-    except TypeError:
-        odes = [odes]
-
-    assert len(states) == len(odes)
-
-    if params is None:
-        params = []
-
-    model = Model(
-        Var(iv),
-        [Var(x) for x in states],  # states
-        [Var(x) for x in params],  # params
-        [],  # obs
-        [],  # eqs
-        [EqDiff(Var(lhs), lower(rhs)) for (lhs, rhs) in zip(states, odes)],  # odes
-    )
-
-    return model
-
-
-def model_jac(iv, states, odes, params=None):
-    try:
-        states = list(states)
-    except TypeError:
-        states = [states]
-
-    try:
-        odes = list(odes)
-    except TypeError:
-        odes = [odes]
-
-    assert len(states) == len(odes)
-
-    n = len(states)
-    eqs = []
-    obs = []
-
-    for i in range(n):
-        for j in range(n):
-            df = diff(odes[i], states[j])
-            eqs.append(df)
-            obs.append(f"${i}_{j}")
-
-    if params is None:
-        params = []
-
-    model = Model(
-        Var(iv),
-        [Var(x) for x in states],  # states
-        [Var(x) for x in params],  # params
-        [Var(x) for x in obs],  # obs
-        [Eq(Var(lhs), lower(rhs)) for (lhs, rhs) in zip(obs, eqs)],  # eqs
-        [],  # odes
-    )
-
-    return model

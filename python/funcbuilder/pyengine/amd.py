@@ -1,4 +1,5 @@
 import sys
+import struct
 
 from . import assembler
 from . import vectorizer
@@ -137,23 +138,31 @@ class Amd(assembler.Assembler):
             self.vex3pd(reg, vreg, rm)
 
     # AVX rules!
-    def movapd(self, reg, rm):
+    def vmovapd(self, reg, rm):
         self.vex_pd(reg, 0, rm)
         self.append_byte(0x28)
         self.modrm_reg(reg, rm)
         return self
 
-    def movsd_xmm_mem(self, reg, rm, offset):
+    def vmovsd_xmm_mem(self, reg, rm, offset):
         self.vex_sd(reg, 0, rm)
         self.append_byte(0x10)
         self.modrm_mem(reg, rm, offset)
         return self
+        
+    def vmovsd_xmm_label(self, reg, label):
+        self.vex_sd(reg, 0, 0)
+        self.append_byte(0x10)
+        # modr/m byte with MOD=00 and R/M=101 (RIP-relative address)
+        self.append_byte(5 | ((reg & 7) << 3)) 
+        self.jump(label)
+        return self        
 
-    def movsd_mem_xmm(self, rm, offset, reg):
+    def vmovsd_mem_xmm(self, rm, offset, reg):
         self.vex_sd(reg, 0, rm)
         self.append_byte(0x11)
         self.modrm_mem(reg, rm, offset)
-        return self
+        return self        
 
     def vbroadcastsd(self, reg, rm, offset):
         self.vex3pd(reg, 0, rm, 2)
@@ -287,6 +296,15 @@ class Amd(assembler.Assembler):
         self.append_byte(0x8B)
         self.modrm_mem(reg, rm, offset)
         return self
+        
+    def mov_reg_label(self, reg, label):
+        reg = reg_index(reg)
+        self.rex(reg, 0)
+        self.append_byte(0x8B)
+        # modr/m byte with MOD=00 and R/M=101 (RIP-relative address)
+        self.append_byte(5 | ((reg & 7) << 3)) 
+        self.jump(label)
+        return self        
 
     def mov_mem_reg(self, rm, offset, reg):
         self.rex(reg, rm)
@@ -368,7 +386,15 @@ class Amd(assembler.Assembler):
     def jnz(self, label):
         self.append_byte(0x0F, 0x85)
         self.jump(label)
-
+        
+    def def_quad(self, val):
+        """pseudo-instruction dq"""
+        self.append_word(val & 0xffffffff)
+        self.append_word(val >> 32)   
+        
+    def nop(self):             
+        self.append_byte(0x90)
+        
 
 class AmdIR:
     def __init__(self, mem):
@@ -385,23 +411,26 @@ class AmdIR:
         return self.amd.buf
 
     def load_stack(self, dst, idx):
-        self.amd.movsd_xmm_mem(dst, "rsp", 8 * idx)
+        self.amd.vmovsd_xmm_mem(dst, "rsp", 8 * idx)
 
     def save_stack(self, src, idx):
-        self.amd.movsd_mem_xmm("rsp", 8 * idx, src)
+        self.amd.vmovsd_mem_xmm("rsp", 8 * idx, src)
 
     def load_mem(self, dst, idx):
-        self.amd.movsd_xmm_mem(dst, "rbp", 8 * idx)
+        self.amd.vmovsd_xmm_mem(dst, "rbp", 8 * idx)
+        
+    def load_const(self, dst, idx):
+        self.amd.vmovsd_xmm_label(dst, 2*idx+1)        
 
     def save_mem(self, src, idx):
-        self.amd.movsd_mem_xmm("rbp", 8 * idx, src)
+        self.amd.vmovsd_mem_xmm("rbp", 8 * idx, src)
 
     def neg(self, dst):
-        self.amd.movsd_xmm_mem(1, "rbp", 8 * self.mem.constant(-0.0))
+        self.amd.vmovsd_xmm_mem(1, "rbp", 8 * self.mem.constant(-0.0))
         self.amd.vxorpd(dst, 0, 1)
 
     def abs(self, dst):
-        self.amd.movsd_xmm_mem(1, "rbp", 8 * self.mem.constant(-0.0))
+        self.amd.vmovsd_xmm_mem(1, "rbp", 8 * self.mem.constant(-0.0))
         self.amd.vandnpd(dst, 1, 0)
 
     def root(self, dst):
@@ -415,7 +444,7 @@ class AmdIR:
         self.amd.vmulsd(dst, 0, 1)
 
     def recip(self, dst):
-        self.amd.movsd_xmm_mem(1, "rbp", 8 * self.mem.constant(1.0))
+        self.amd.vmovsd_xmm_mem(1, "rbp", 8 * self.mem.constant(1.0))
         self.amd.vdivsd(dst, 1, 0)
 
     def plus(self, dst, r):
@@ -462,11 +491,12 @@ class AmdIR:
         if self.amd.is_win:
             self.amd.sub_rsp(32)
 
-        self.amd.mov_reg_mem("rax", "rbx", 8 * idx)
+        # self.amd.mov_reg_mem("rax", "rbx", 8 * idx)
+        self.amd.mov_reg_label("rax", 2*idx)
         self.amd.call("rax")
 
         if dst != 0:
-            self.amd.movapd(dst, 0)
+            self.amd.vmovapd(dst, 0)
 
         if self.amd.is_win:
             self.amd.add_rsp(32)
@@ -477,13 +507,14 @@ class AmdIR:
             self.amd.sub_rsp(32)
 
         if r != 1:
-            self.amd.movapd(1, r)
+            self.amd.vmovapd(1, r)
 
-        self.amd.mov_reg_mem("rax", "rbx", 8 * idx)
+        # self.amd.mov_reg_mem("rax", "rbx", 8 * idx)
+        self.amd.mov_reg_label("rax", 2*idx)
         self.amd.call("rax")
 
         if dst != 0:
-            self.amd.movapd(dst, 0)
+            self.amd.vmovapd(dst, 0)
 
         if self.amd.is_win:
             self.amd.add_rsp(32)
@@ -522,7 +553,24 @@ class AmdIR:
         self.amd.pop("rbx")
         self.amd.pop("rbp")
         self.amd.ret()
-
+        
+    def append_text_section(self, consts, vt):
+        # aligns the func table at a multiple of 8
+        n = len(self.amd.buf)
+        while (n & 7) != 0:
+            self.amd.nop()
+            n += 1
+            
+        for (i, p) in enumerate(vt):
+            self.amd.set_label(2*i)
+            self.amd.def_quad(p)
+            
+        for (i, c) in enumerate(consts):
+            self.amd.set_label(2*i+1)
+            x = struct.unpack('<Q', struct.pack('<d', c))[0]
+            self.amd.def_quad(x)         
+            
+        self.amd.apply_jumps()
 
 ##########################################################################
 
@@ -532,14 +580,14 @@ def test_avx():
     assert amd.push("rbp").test([0x55])
     assert amd.push("rbx").test([0x53])
     assert amd.mov_reg_reg("rbp", "rdi").test([0x48, 0x8B, 0xEF])
-    assert amd.vmovapd_ymm_ymm(1, 5).test([0xC5, 0xFD, 0x28, 0xCD])
+    assert amd.vmovapd_xmm_xmm(1, 5).test([0xC5, 0xFD, 0x28, 0xCD])
     assert amd.vmovsd_xmm_mem(2, "rbp", 0x1234).test(
         [0xC5, 0xFB, 0x10, 0x95, 0x34, 0x12, 0x00, 0x00]
     )
-    assert amd.vmovapd_ymm_mem(1, "rbp", 0x1234).test(
+    assert amd.vmovapd_xmm_mem(1, "rbp", 0x1234).test(
         [0xC5, 0xFD, 0x28, 0x8D, 0x34, 0x12, 0x00, 0x00]
     )
-    assert amd.vmovupd_mem_ymm("rbp", 0x1234, 0).test(
+    assert amd.vmovupd_mem_xmm("rbp", 0x1234, 0).test(
         [0xC5, 0xFD, 0x11, 0x85, 0x34, 0x12, 0x00, 0x00]
     )
     assert amd.vmulpd(2, 0, 1).test([0xC5, 0xFD, 0x59, 0xD1])
