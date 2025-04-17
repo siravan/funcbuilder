@@ -191,8 +191,12 @@ class Builder:
             )
 
             idx = self.obs.index(y)
-            self.compiler = pyengine.PyCompiler(model, y, ty="native")
-            return self.compiler.func
+            compiler = pyengine.PyCompiler(model, y, ty="native")
+            func = compiler.func
+            # to prevent compiler to deallocate before func, 
+            # since compiler holds the actual code, func is just a wrapper
+            func.compiler = compiler    
+            return func
         except:
             raise ValueError(f"return variable {y} not found")
 

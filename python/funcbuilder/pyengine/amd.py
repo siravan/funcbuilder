@@ -399,7 +399,7 @@ class AmdSysVStack:
         # shadows are XMM/YMM registers that shadow the stack slots
         self.first_shadow = 3
         self.count_shadows = 13
-        self.count_xmm_args = 8
+        self.count_simd_args = 8
         
     def offset(self, idx):
         ns = self.mem.count_states
@@ -424,7 +424,7 @@ class AmdWindowsStack:
         # shadows are XMM/YMM registers that shadow the stack slots
         self.first_shadow = 3   # XMM3-XMM5
         self.count_shadows = 3 
-        self.count_xmm_args = 4
+        self.count_simd_args = 4
         
     def offset(self, idx):
         ns = self.mem.count_states
@@ -535,6 +535,8 @@ class AmdIR:
         self.amd.vxorpd(dst, 0, r)
 
     def call_unary(self, dst, idx):
+        self.amd.vzeroupper()
+    
         # Windows 32-byte home area
         if self.amd.is_win:
             self.amd.sub_rsp(32)
@@ -550,6 +552,8 @@ class AmdIR:
             self.amd.add_rsp(32)
 
     def call_binary(self, dst, r, idx):
+        self.amd.vzeroupper()
+        
         # Windows 32-byte home area
         if self.amd.is_win:
             self.amd.sub_rsp(32)
@@ -586,7 +590,7 @@ class AmdIR:
         self.amd.mov("rbp", "rsp")
         self.amd.sub_rsp(self.stack.frame_size())
         
-        for i in range(min(self.mem.count_states, self.stack.count_xmm_args)):
+        for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
             self.save_mem(i, i)
         
         self.amd.end_prepend()

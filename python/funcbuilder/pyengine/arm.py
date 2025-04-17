@@ -22,6 +22,8 @@ class Arm(assembler.Assembler):
             x = 31
         elif x == "lr":
             x = 30
+        elif x == "fp":
+            x = 29            
         elif not isinstance(x, int):
             raise ValueError(f"reg {x} not defined")
 
@@ -33,6 +35,8 @@ class Arm(assembler.Assembler):
             x = 31
         elif x == "lr":
             x = 30
+        elif x == "fp":
+            x = 29            
         elif not isinstance(x, int):
             raise ValueError(f"reg {x} not defined")
 
@@ -82,6 +86,12 @@ class Arm(assembler.Assembler):
         # ldr x(rd), [x(rn), ofs]
         self.append_word(0xF9400000 | self.rd(rd) | self.rn(rn) | self.ofs(ofs))
         return self
+        
+    def ldr_d_label(self, rd, label):
+        self.jump(label, code=(0x5C000000 | self.rd(rd)))
+        
+    def ldr_x_label(self, rd, label):
+        self.jump(label, code=(0x58000000 | self.rd(rd)))        
 
     def str_d(self, rd, rn, ofs):
         # str d(rd), [x(rn), ofs]
@@ -299,15 +309,53 @@ class Arm(assembler.Assembler):
         else:
             raise ValueError(f"constant {val} not defined")
         return self
+        
+    def def_quad(self, val):
+        """pseudo-instruction dcq"""
+        self.append_word(val & 0xffffffff)
+        self.append_word(val >> 32)   
+        
+    def nop(self):             
+        self.append_word(0xd503201f)        
+
+
+class ArmStack:
+    def __init__(self, mem):
+        self.mem = mem
+        self.first_shadow = 3
+        self.count_shadows = 5
+        self.count_simd_args = 8
+        
+    def offset(self, idx):
+        ns = self.mem.count_states
+        nr = self.count_simd_args
+        
+        if idx < ns:
+            if idx < nr:
+                return 8 * idx
+            else:
+                return 8 * (2 + idx - nr) + self.top_size() # 2 for fp and lr storage
+        else:
+            return 8 * (idx - max(0, ns - nr))            
+        
+    def top_size(self):
+        cap = min(self.mem.count_states, self.count_simd_args) + self.mem.count_obs
+        pad = cap & 1
+        return 8 * (cap + pad)  
+            
+    def bottom_size(self):
+        cap = self.mem.stack_size
+        pad = cap & 1
+        return 8 * (cap + pad)
 
 
 class ArmIR:
     def __init__(self, mem):
         self.arm = Arm()
-        self.mem = mem
-        # shadows are d(3)-d(7)
-        self.first_shadow = 3
-        self.count_shadows = 5
+        self.mem = mem        
+        self.stack = ArmStack(mem)
+        self.first_shadow = self.stack.first_shadow
+        self.count_shadows = self.stack.count_shadows            
 
     def buf(self):
         return self.arm.buf
@@ -319,10 +367,12 @@ class ArmIR:
         self.arm.str_d(src, "sp", 8 * idx)
 
     def load_mem(self, dst, idx):
-        self.arm.ldr_d(dst, 19, 8 * idx)
+        offset = self.stack.offset(idx)
+        self.arm.ldr_d(dst, "fp", offset)
 
     def save_mem(self, src, idx):
-        self.arm.str_d(src, 19, 8 * idx)
+        offset = self.stack.offset(idx)
+        self.arm.str_d(src, "fp", offset)
 
     def neg(self, dst):
         self.arm.fneg(dst, 0)
@@ -403,33 +453,45 @@ class ArmIR:
         if cond != dst:
             self.arm.fmov(dst, cond)
 
-    def stack_size(self):
-        cap = self.mem.stack_size
-        pad = cap & 1
-        return (cap + pad) * 8
-
     def prepend_prologue(self):
         # note that we generate the prologue after the main body
         # because we need to know the stack size
         self.arm.begin_prepend()
 
-        n = self.stack_size()
-        self.arm.sub_imm("sp", "sp", 32)
-        self.arm.str_x("lr", "sp", 0)
-        self.arm.stp_x(19, 20, "sp", 16)
-        self.arm.sub_imm("sp", "sp", n)
-        self.arm.mov(19, 0)
-        self.arm.mov(20, 1)  # different than Rust
-
+        top = self.stack.top_size()
+        bottom = self.stack.bottom_size()
+        
+        self.arm.sub_imm("sp", "sp", 16)
+        self.arm.stp_x("fp", "lr", "sp", 0)
+        self.arm.sub_imm("sp", "sp", top + bottom)
+        self.arm.add("fp", "sp", bottom)
+        
+        for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
+            self.save_mem(i, i)
+    
         self.arm.end_prepend()
 
-    def append_epilogue(self):
-        n = self.stack_size()
-        self.arm.add_imm("sp", "sp", n)
-        self.arm.ldp_x(19, 20, "sp", 16)
-        self.arm.ldr_x("lr", "sp", 0)
-        self.arm.add_imm("sp", "sp", 32)
+    def append_epilogue(self, idx):
+        top = self.stack.top_size()
+        bottom = self.stack.bottom_size()
+        
+        self.load_mem(0, idx)
+        self.arm.add_imm("sp", "sp", top + bottom)
+        self.arm.ldp_x("fp", "lr", "sp", 0)
+        self.arm.add_imm("sp", "sp", 16)
         self.arm.ret()
+        
+    def append_text_section(self, consts, vt):            
+        for (i, p) in enumerate(vt):
+            self.arm.set_label(2*i)
+            self.arm.def_quad(p)
+            
+        for (i, c) in enumerate(consts):
+            self.arm.set_label(2*i+1)
+            x = struct.unpack('<Q', struct.pack('<d', c))[0]
+            self.arm.def_quad(x)         
+            
+        self.arm.apply_jumps()        
 
 
 ################################################################
