@@ -1,4 +1,18 @@
+import struct
+
 from . import assembler
+
+def reg_index(x):
+    if x == "sp":
+        return 31
+    elif x == "lr":
+        return 30
+    elif x == "fp":
+        return 29
+    else:
+        x = int(x)
+        assert x >= 0 and x < 32
+        return x
 
 class Arm(assembler.Assembler):
     def __init__(self):
@@ -18,38 +32,16 @@ class Arm(assembler.Assembler):
             self.buf[k + 3] |= (imm19 >> 24) & 0xFF
 
     def rd(self, x):
-        if x == "sp":
-            x = 31
-        elif x == "lr":
-            x = 30
-        elif x == "fp":
-            x = 29            
-        elif not isinstance(x, int):
-            raise ValueError(f"reg {x} not defined")
-
-        assert x < 32
-        return x
-
+        return reg_index(x)
+        
     def rn(self, x):
-        if x == "sp":
-            x = 31
-        elif x == "lr":
-            x = 30
-        elif x == "fp":
-            x = 29            
-        elif not isinstance(x, int):
-            raise ValueError(f"reg {x} not defined")
-
-        assert x < 32
-        return x << 5
-
+        return reg_index(x) << 5
+      
     def rd2(self, x):
-        assert x < 32
-        return x << 10
+        return reg_index(x) << 10
 
     def rm(self, x):
-        assert x < 32
-        return x << 16
+        return reg_index(x) << 16
 
     def imm(self, x):
         assert x < 4096
@@ -73,7 +65,10 @@ class Arm(assembler.Assembler):
         return self
 
     def mov(self, rd, rm):
-        self.append_word(0xAA0003E0 | self.rd(rd) | self.rm(rm))
+        if rm == "sp":
+            return self.add_imm(rd, rm, 0)
+        else:
+            self.append_word(0xAA0003E0 | self.rd(rd) | self.rm(rm))
         return self
 
     # single register load/store instructions
@@ -374,6 +369,9 @@ class ArmIR:
         offset = self.stack.offset(idx)
         self.arm.str_d(src, "fp", offset)
 
+    def load_const(self, dst, idx):
+        self.arm.ldr_d_label(dst, 2*idx+1) 
+
     def neg(self, dst):
         self.arm.fneg(dst, 0)
 
@@ -435,7 +433,7 @@ class ArmIR:
         self.arm.eor(dst, 0, r)
 
     def call_unary(self, dst, idx):
-        self.arm.ldr_x(0, 20, 8 * idx)
+        self.arm.ldr_x_label(0, 2*idx)
         self.arm.blr(0)
         if dst != 0:
             self.arm.fmov(dst, 0)
@@ -443,7 +441,7 @@ class ArmIR:
     def call_binary(self, dst, r, idx):
         if r != 1:
             self.arm.fmov(1, r)
-        self.arm.ldr_x(0, 20, 8 * idx)
+        self.arm.ldr_x_label(0, 2*idx)
         self.arm.blr(0)
         if dst != 0:
             self.arm.fmov(dst, 0)
@@ -463,8 +461,9 @@ class ArmIR:
         
         self.arm.sub_imm("sp", "sp", 16)
         self.arm.stp_x("fp", "lr", "sp", 0)
-        self.arm.sub_imm("sp", "sp", top + bottom)
-        self.arm.add("fp", "sp", bottom)
+        self.arm.sub_imm("sp", "sp", top)
+        self.arm.mov("fp", "sp")
+        self.arm.sub_imm("sp", "sp", bottom)
         
         for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
             self.save_mem(i, i)
