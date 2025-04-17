@@ -2,7 +2,6 @@ import sys
 import ctypes
 import mmap
 from ctypes.util import find_library
-import numpy as np
 import platform
 
 from . import amd
@@ -46,13 +45,9 @@ class Memory:
         self.stack_size = 0
 
     def index(self, name):
+        if isinstance(name, tree.Var):
+            name = name.name
         return self.names.index(name)
-
-    def index_diff(self, name):
-        return self.names.index(f"δ{name}")
-
-    def mem(self):
-        return np.zeros(self.count_states + self.count_obs, dtype=np.float64)
 
     def constant(self, val):
         val = float(val)
@@ -126,7 +121,7 @@ class VirtualTable:
         return func
 
     def vt(self):
-        return np.asarray(self.addr, dtype=np.uint64)
+        return self.addr
 
     def find(self, op):
         return self.dict[op]
@@ -230,28 +225,18 @@ class Code:
 
 
 class PyCompiler:
-    def __init__(self, model, ty="native"):
-        mem = Memory(model)
-        vt = VirtualTable()
+    def __init__(self, model, y, ty="native"):
+        self.mem = Memory(model)
+        self.vt = VirtualTable()
+        self.prog = self.assembler(ty)(self.mem)
+        idx = self.mem.index(y)
+        model.compile(idx, self.prog, self.mem, self.vt)
+        
+        fac = ctypes.CFUNCTYPE(*[ctypes.c_double for _ in range(self.mem.count_states+1)])
 
-        prog = self.assembler(ty)(mem)
-        model.compile(0, prog, mem, vt)
-
-        fac = ctypes.CFUNCTYPE(
-            ctypes.c_size_t,  # restype
-            ctypes.c_size_t,  # address of the heap
-            ctypes.c_size_t,  # address of the virtual table
-        )
-
-        self.code = Code(prog.buf())
+        self.code = Code(self.prog.buf())
         self.func = fac(self.code.addr)
-        self.heap = mem.mem()
-        self.table = vt.vt()
-        self.heap_ptr = ctypes.addressof(ctypes.c_long.from_buffer(self.heap))
-        self.table_ptr = ctypes.addressof(ctypes.c_long.from_buffer(self.table))
-        self.mem = mem
-        self.prog = prog
-
+        
         self.populate()
 
     def __del__(self):
@@ -288,12 +273,8 @@ class PyCompiler:
         first_state = self.mem.first_state
         self.first_state = first_state
         first_obs = self.mem.first_obs
-
         self.count_states = self.mem.count_states
         self.count_obs = self.mem.count_obs
-
-        self.states = self.heap[first_state : first_state + self.count_states]
-        self.obs = self.heap[first_obs : first_obs + self.count_obs]
         
     def dumps(self):
         return self.prog.buf().hex()
@@ -302,8 +283,5 @@ class PyCompiler:
         with open(name, "wb") as fd:
             fd.write(prog.buf)
 
-    def execute(self):
-        if self.can_run:
-            self.func(self.heap_ptr, self.table_ptr)
 
 

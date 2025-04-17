@@ -225,7 +225,7 @@ class EqDiff:
 
 
 class Model:
-    def __init__(self, iv, states, params, obs, eqs, odes):
+    def __init__(self, states, obs, eqs):
         self.states = states
         self.obs = obs
         self.eqs = eqs
@@ -237,15 +237,15 @@ class Model:
             eqs: {self.eqs})
         )"""
 
-    def compile(self, dst, prog, mem, vt):
+    def compile(self, idx, prog, mem, vt):
         for eq in self.eqs:
-            eq.compile(dst, prog, mem, vt)
+            eq.compile(0, prog, mem, vt)
 
         # we need to prepend and not append prologue
         # because we don't know the stack size until
         # after compiling the body of the function
         prog.prepend_prologue()
-        prog.append_epilogue()
+        prog.append_epilogue(idx)
         prog.append_text_section(mem.consts, vt.vt())
 
 

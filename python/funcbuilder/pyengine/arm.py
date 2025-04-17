@@ -1,6 +1,4 @@
 from . import assembler
-from . import vectorizer
-
 
 class Arm(assembler.Assembler):
     def __init__(self):
@@ -310,9 +308,6 @@ class ArmIR:
         # shadows are d(3)-d(7)
         self.first_shadow = 3
         self.count_shadows = 5
-
-    def vectorize(self):
-        return vectorizer.vectorize_arm(self.arm, self.mem)
 
     def buf(self):
         return self.arm.buf

@@ -1,10 +1,8 @@
-import numpy as np
 import numbers
 
 from . import pyengine
 
 tree = pyengine.tree
-
 
 class Builder:
     def __init__(self, *states):
@@ -89,6 +87,9 @@ class Builder:
             return self.append_unary("cube", t)
         elif power == 0.5:
             return self.append_unary("root", a)
+        elif power == -0.5:
+            t = self.append_unary("root", a)
+            return self.append_unary("recip", t)
         elif power == 1.5:
             t = self.append_unary("root", a)
             return self.append_unary("cube", t)
@@ -183,18 +184,15 @@ class Builder:
         try:
             eqs = self.arborize(y)
 
-            model = tree.Model(
-                tree.Var("$_"),  # iv
+            model = tree.Model(                
                 self.states,  # states
-                [],  # params
                 self.obs,  # obs
                 eqs,  # eqs
-                [],  # odes
             )
 
             idx = self.obs.index(y)
-            compiler = pyengine.PyCompiler(model, ty="native")
-            return BuiltFunc(compiler, idx)
+            self.compiler = pyengine.PyCompiler(model, y, ty="native")
+            return self.compiler.func
         except:
             raise ValueError(f"return variable {y} not found")
 
@@ -254,28 +252,4 @@ class Builder:
         return [eq for eq in eqs if eq is not None]
 
 
-class BuiltFunc:
-    def __init__(self, compiler, idx):
-        self.compiler = compiler
-        self.count_states = self.compiler.count_states
-        self.count_obs = self.compiler.count_obs
-        self.idx = idx
 
-    def __call__(self, *args):
-        if len(args) > self.count_states:
-            p = np.array(args[self.count_states :], dtype="double")
-            self.compiler.params[:] = p
-
-        if isinstance(args[0], numbers.Number):
-            u = np.array(args[: self.count_states], dtype="double")
-            self.compiler.states[:] = u
-            self.compiler.execute()
-            return float(self.compiler.obs[self.idx])
-        else:
-            raise ValueError("vectorized call not supported yet")
-            
-    def dumps(self):
-        self.compiler.dumps()            
-
-    def dump(self, name):
-        self.compiler.dump(name)

@@ -5,8 +5,9 @@ class Assembler:
         self.labels = {}
         self.jumps = []
 
-    def append_byte(self, *b):
-        self.buf.extend(b)
+    def append_byte(self, *bs):
+        for b in bs:
+            self.buf.append(b & 0xFF)
 
     def append_word(self, u):
         """appends u (uint32) as little-endian"""

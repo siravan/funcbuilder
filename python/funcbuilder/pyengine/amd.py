@@ -2,8 +2,6 @@ import sys
 import struct
 
 from . import assembler
-from . import vectorizer
-
 
 def reg_index(reg):
     if isinstance(reg, int):
@@ -70,11 +68,10 @@ class Amd(assembler.Assembler):
         self.append_byte(0x48 + ((rm & 8) >> 3) + ((reg & 8) >> 1))
 
     def modrm_mem(self, reg, rm, offset):
-        assert offset >= 0
         reg = reg_index(reg)
         rm = reg_index(rm)
 
-        if offset < 128:
+        if offset < 128 and offset >= -128:
             self.append_byte(0x40 + ((reg & 7) << 3) + (rm & 7))
         else:
             self.append_byte(0x80 + ((reg & 7) << 3) + (rm & 7))
@@ -82,7 +79,7 @@ class Amd(assembler.Assembler):
         if rm == 4:
             self.append_byte(0x24)  # SIB byte for RSP
 
-        if offset < 128:
+        if offset < 128 and offset >= -128:
             self.append_byte(offset)
         else:
             self.append_word(offset)
@@ -395,17 +392,66 @@ class Amd(assembler.Assembler):
     def nop(self):             
         self.append_byte(0x90)
         
+        
+class AmdSysVStack:
+    def __init__(self, mem):
+        self.mem = mem
+        # shadows are XMM/YMM registers that shadow the stack slots
+        self.first_shadow = 3
+        self.count_shadows = 13
+        self.count_xmm_args = 8
+        
+    def offset(self, idx):
+        ns = self.mem.count_states
+        
+        if idx < ns:
+            if idx < 8:
+                return 8 * (-(1 + idx))
+            else:
+                return 8 * (idx - 6)
+        else:
+            return 8 * (-(1 + idx - max(0, ns - 8)))
+            
+    def frame_size(self):
+        cap = self.mem.stack_size + min(self.mem.count_states, 8) + self.mem.count_obs
+        pad = cap & 1
+        return 8 * (cap + pad)
+        
+        
+class AmdWindowsStack:
+    def __init__(self, mem):
+        self.mem = mem
+        # shadows are XMM/YMM registers that shadow the stack slots
+        self.first_shadow = 3   # XMM3-XMM5
+        self.count_shadows = 3 
+        self.count_xmm_args = 4
+        
+    def offset(self, idx):
+        ns = self.mem.count_states
+        
+        if idx < ns:
+            return 8 * (idx + 2)
+        else:
+            return 8 * (-(1 + idx - ns))
+            
+    def frame_size(self):
+        cap = self.mem.stack_size + self.mem.count_obs
+        pad = cap & 1
+        return 8 * (cap + pad)        
+        
 
 class AmdIR:
     def __init__(self, mem):
         self.amd = Amd()
         self.mem = mem
-        # shadows are XMM/YMM registers that shadow the stack slots
-        self.first_shadow = 3
-        self.count_shadows = 3 if sys.platform == "win32" else 13
-
-    def vectorize(self):
-        return vectorizer.vectorize_amd(self.amd, self.mem)
+        
+        if sys.platform == "win32":
+            self.stack = AmdWindowsStack(mem)
+        else:        
+            self.stack = AmdSysVStack(mem)
+            
+        self.first_shadow = self.stack.first_shadow
+        self.count_shadows = self.stack.count_shadows            
 
     def buf(self):
         return self.amd.buf
@@ -417,20 +463,22 @@ class AmdIR:
         self.amd.vmovsd_mem_xmm("rsp", 8 * idx, src)
 
     def load_mem(self, dst, idx):
-        self.amd.vmovsd_xmm_mem(dst, "rbp", 8 * idx)
+        offset = self.stack.offset(idx)
+        self.amd.vmovsd_xmm_mem(dst, "rbp", offset)
         
     def load_const(self, dst, idx):
         self.amd.vmovsd_xmm_label(dst, 2*idx+1)        
 
     def save_mem(self, src, idx):
-        self.amd.vmovsd_mem_xmm("rbp", 8 * idx, src)
+        offset = self.stack.offset(idx)
+        self.amd.vmovsd_mem_xmm("rbp", offset, src)
 
     def neg(self, dst):
-        self.amd.vmovsd_xmm_mem(1, "rbp", 8 * self.mem.constant(-0.0))
+        self.load_const(1, self.mem.constant(-0.0))
         self.amd.vxorpd(dst, 0, 1)
 
     def abs(self, dst):
-        self.amd.vmovsd_xmm_mem(1, "rbp", 8 * self.mem.constant(-0.0))
+        self.load_const(1, self.mem.constant(-0.0))
         self.amd.vandnpd(dst, 1, 0)
 
     def root(self, dst):
@@ -444,7 +492,7 @@ class AmdIR:
         self.amd.vmulsd(dst, 0, 1)
 
     def recip(self, dst):
-        self.amd.vmovsd_xmm_mem(1, "rbp", 8 * self.mem.constant(1.0))
+        self.load_const(1, self.mem.constant(1.0))
         self.amd.vdivsd(dst, 1, 0)
 
     def plus(self, dst, r):
@@ -535,22 +583,18 @@ class AmdIR:
         self.amd.begin_prepend()
 
         self.amd.push("rbp")
-        self.amd.push("rbx")
-
-        if self.amd.is_win:
-            self.amd.mov("rbp", "rcx")
-            self.amd.mov("rbx", "rdx")  # different than the rust code
-        else:
-            self.amd.mov("rbp", "rdi")
-            self.amd.mov("rbx", "rsi")  # different than the rust code
-
-        self.amd.sub_rsp(self.stack_size())
+        self.amd.mov("rbp", "rsp")
+        self.amd.sub_rsp(self.stack.frame_size())
+        
+        for i in range(min(self.mem.count_states, self.stack.count_xmm_args)):
+            self.save_mem(i, i)
+        
         self.amd.end_prepend()
 
-    def append_epilogue(self):
+    def append_epilogue(self, idx):
+        self.load_mem(0, idx)
         self.amd.vzeroupper()
-        self.amd.add_rsp(self.stack_size())
-        self.amd.pop("rbx")
+        self.amd.add_rsp(self.stack.frame_size())
         self.amd.pop("rbp")
         self.amd.ret()
         
