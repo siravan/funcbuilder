@@ -276,6 +276,12 @@ class Amd(assembler.Assembler):
         self.modrm_reg(reg, rm)
         self.append_byte(7)
         return self
+        
+    def vucomisd(self, reg, rm):
+        self.vex_pd(reg, 0, rm)
+        self.append_byte(0x2E)
+        self.modrm_reg(reg, rm)
+        return self        
 
     def vzeroupper(self):
         self.append_byte(0xC5, 0xF8, 0x77)
@@ -379,10 +385,20 @@ class Amd(assembler.Assembler):
         self.rex(0, rm)
         self.append_byte(0xFF)
         self.modrm_reg(1, rm)
+        
+    def jmp(self, label):
+        self.append_byte(0xE9)
+        self.jump(label)        
 
     def jnz(self, label):
         self.append_byte(0x0F, 0x85)
         self.jump(label)
+        
+    def jpe(self, label):
+        # jump if parity even is true if vucomisd returns
+        # an unordered result
+        self.append_byte(0x0F, 0x8A)
+        self.jump(label)        
         
     def def_quad(self, val):
         """pseudo-instruction dq"""
@@ -523,16 +539,21 @@ class AmdIR:
         self.amd.vcmpeqsd(dst, 0, r)
 
     def neq(self, dst, r):
-        self.amd.vcmpneqsd(dst, 0, r)
+        self.amd.vcmpneqsd(dst, 0, r)        
 
-    def boolean_and(self, dst, r):
+    def and_(self, dst, r):
         self.amd.vandpd(dst, 0, r)
 
-    def boolean_or(self, dst, r):
+    def or_(self, dst, r):
         self.amd.vorpd(dst, 0, r)
 
-    def boolean_xor(self, dst, r):
+    def xor(self, dst, r):
         self.amd.vxorpd(dst, 0, r)
+    
+    def not_(self, dst):
+        self.amd.vxorpd(1, 1, 1)
+        self.amd.vcmpeqsd(1, 1, 1)
+        self.amd.vxorpd(dst, 0, 1)        
 
     def call_unary(self, dst, idx):
         self.amd.vzeroupper()
@@ -571,15 +592,25 @@ class AmdIR:
         if self.amd.is_win:
             self.amd.add_rsp(32)
 
-    def ifelse(self, dst, cond, true_reg, false_reg):
+    def set_label(self, label):
+        self.amd.set_label(label)
+        
+    def branch(self, label):
+        self.amd.jmp(label)        
+        
+    def branch_if(self, cond, true_label):
+        self.amd.vucomisd(0, 0)
+        self.amd.jpe(true_label)                
+        
+    def branch_if_else(self, cond, true_label, false_label):
+        self.amd.vucomisd(0, 0)
+        self.amd.jpe(true_label)
+        self.amd.jump_(false_label)
+
+    def select(self, dst, cond, true_reg, false_reg):
         self.amd.vandpd(true_reg, true_reg, cond)
         self.amd.vandnpd(cond, cond, false_reg)
         self.amd.vorpd(dst, true_reg, cond)
-
-    def stack_size(self):
-        cap = self.mem.stack_size
-        pad = (cap + 1) & 1
-        return (cap + pad) * 8
 
     def prepend_prologue(self):
         # note that we generate the prologue after the main body

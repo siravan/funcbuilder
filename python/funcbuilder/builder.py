@@ -18,6 +18,10 @@ class Builder:
         self.obs.append(v)
         self.hits[v] = 0
         return v
+        
+    def invalidate_hits(self):
+        for v in self.hits:
+            self.hits[v] = 2            
 
     def prep(self, a):
         """Called on each observable on the right hand side of an equation"""
@@ -38,17 +42,28 @@ class Builder:
         b = self.prep(b)
         v = self.new_var()
         self.eqs.append(tree.Eq(v, tree.Binary(op, a, b)))
-        return v
+        return v            
 
-    def append_ifelse(self, cond, a, b):
+    def append_select(self, cond, a, b):
         cond = self.prep(cond)
         a = self.prep(a)
         b = self.prep(b)
         v = self.new_var()
-        self.eqs.append(tree.Eq(v, tree.IfElse(cond, a, b)))
+        self.eqs.append(tree.Eq(v, tree.Select(cond, a, b)))
         return v
+        
+    def init(self, a):
+        a = self.prep(a)
+        v = self.new_var()
+        self.eqs.append(tree.Eq(v, a))
+        return v
+        
+    def assign(self, a, b):
+        b = self.prep(b)
+        self.eqs.append(tree.Eq(a, b))
+        return a
 
-    def add(self, *a):
+    def fadd(self, *a):
         if len(a) == 1:
             return self.prep(a[0])
         elif len(a) > 2:
@@ -57,10 +72,10 @@ class Builder:
         else:
             return self.append_binary("plus", a[0], a[1])
 
-    def sub(self, a, b):
+    def fsub(self, a, b):
         return self.append_binary("minus", a, b)
 
-    def mul(self, *a):
+    def fmul(self, *a):
         if len(a) == 1:
             return self.prep(a[0])
         elif len(a) > 2:
@@ -69,8 +84,11 @@ class Builder:
         else:
             return self.append_binary("times", a[0], a[1])
 
-    def div(self, a, b):
+    def fdiv(self, a, b):
         return self.append_binary("divide", a, b)
+        
+    def fneg(self, a):
+        return self.append_unary("neg", a)            
 
     def pow(self, a, power):
         if power == 2:
@@ -149,6 +167,48 @@ class Builder:
 
     def atanh(self, a):
         return self.append_unary("arctanh", a)
+        
+    def call(fn, args):
+        if fn == "pow":
+            return self.exp(args[0], args[1])
+        elif fn == "exp":
+            return self.exp(args[0])     
+        elif fn == "log":
+            return self.log(args[0])
+        elif fn == "root":
+            return self.root(args[0])
+        elif fn == "square":
+            return self.square(args[0])
+        elif fn == "cube":
+            return self.cube(args[0])
+        elif fn == "recip":
+            return self.recip(args[0])
+        elif fn == "sin":
+            return self.sin(args[0])    
+        elif fn == "cos":
+            return self.cos(args[0])
+        elif fn == "tan":
+            return self.tan(args[0])
+        elif fn == "sinh":
+            return self.sinh(args[0])    
+        elif fn == "cosh":
+            return self.cosh(args[0])
+        elif fn == "tanh":
+            return self.tanh(args[0])
+        elif fn == "asin":
+            return self.asin(args[0])    
+        elif fn == "acos":
+            return self.acos(args[0])
+        elif fn == "atan":
+            return self.atan(args[0])
+        elif fn == "asinh":
+            return self.asinh(args[0])    
+        elif fn == "acosh":
+            return self.acosh(args[0])
+        elif fn == "atanh":
+            return self.atanh(args[0])            
+        else:
+            raise ValueError(f"undefined function name {fn}")
 
     def lt(self, a, b):
         return self.append_binary("lt", a, b)
@@ -167,18 +227,47 @@ class Builder:
 
     def neq(self, a, b):
         return self.append_binary("neq", a, b)
+        
+    def fcmp_ordered(op, a, b):
+        if op == "<":
+            return self.lt(a, b)
+        elif op == "<=":
+            return self.leq(a, b)
+        elif op == ">":
+            return self.gt(a, b)
+        elif op == ">=":
+            return self.geq(a, b)
+        elif op == "==":
+            return self.eq(a, b)
+        elif op == "!=":
+            return self.neq(a, b)
+        else:
+            raise ValueError(f"undefined comparison {op}")
 
-    def logical_and(self, a, b):
+    def and_(self, a, b):
         return self.append_binary("and", a, b)
 
-    def logical_or(self, a, b):
+    def or_(self, a, b):
         return self.append_binary("or", a, b)
 
-    def logical_xor(self, a, b):
+    def xor(self, a, b):
         return self.append_binary("xor", a, b)
+        
+    def not_(self, a, b):
+        return self.append_binary("not", a, b)
 
-    def ifelse(self, cond, a, b):
-        return self.append_ifelse(cond, a, b)
+    def select(self, cond, a, b):
+        return self.append_select(cond, a, b)    
+        
+    def set_label(self, label):
+        self.eqs.append(tree.Label(label))
+        
+    def branch(self, label):
+        self.eqs.append(tree.Branch(True, label))
+        
+    def cbranch(self, cond, true_label, false_label=None):
+        cond = self.prep(cond)
+        self.eqs.append(tree.Branch(cond, true_label, false_label))
 
     def compile(self, y):
         try:
@@ -220,7 +309,17 @@ class Builder:
         eqs = []
 
         for eq in self.eqs:
-            if isinstance(eq.rhs, tree.Unary):
+            if isinstance(eq, tree.Label):
+                eqs.append(eq)
+            elif isinstance(eq, tree.Branch):
+                eqs.append(
+                    tree.Branch(
+                        self.merge(eqs, y, eq.cond),
+                        eq.true_label,
+                        eq.false_label
+                    )
+                )
+            elif isinstance(eq.rhs, tree.Unary):
                 eqs.append(
                     tree.Eq(
                         eq.lhs, tree.Unary(eq.rhs.op, self.merge(eqs, y, eq.rhs.arg))
@@ -237,11 +336,11 @@ class Builder:
                         ),
                     )
                 )
-            elif isinstance(eq.rhs, tree.IfElse):
+            elif isinstance(eq.rhs, tree.Select):
                 eqs.append(
                     tree.Eq(
                         eq.lhs,
-                        tree.IfElse(
+                        tree.Select(
                             self.merge(eqs, y, eq.rhs.cond),
                             self.merge(eqs, y, eq.rhs.true_val),
                             self.merge(eqs, y, eq.rhs.false_val),
@@ -249,7 +348,7 @@ class Builder:
                     )
                 )
             else:
-                eqs.append(tree.Eq(eq.lhs, eq.rhs))
+                eqs.append(eq)
         # the equations of the observables that are merged
         # is set to None in the merge function and
         # are removed here

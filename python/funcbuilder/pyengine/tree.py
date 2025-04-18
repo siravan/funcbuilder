@@ -19,6 +19,8 @@ class Unary:
 
         if self.op == "neg":
             prog.neg(dst)
+        elif self.op == "not":
+            prog.not_(dst)                        
         elif self.op == "abs":
             prog.abs(dst)
         elif self.op == "root":
@@ -113,16 +115,16 @@ class Binary:
         elif self.op == "neq":
             prog.neq(dst, r)
         elif self.op == "and":
-            prog.boolean_and(dst, r)
+            prog.and_(dst, r)
         elif self.op == "or":
-            prog.boolean_or(dst, r)
+            prog.or_(dst, r)
         elif self.op == "xor":
-            prog.boolean_xor(dst, r)
+            prog.xor(dst, r)        
         else:
             raise ValueError(f"binary op {self.op} not defined")
 
 
-class IfElse:
+class Select:
     def __init__(self, cond, true_val, false_val):
         self.cond = cond
         self.true_val = true_val
@@ -166,12 +168,12 @@ class IfElse:
         sp = mem.pop()
 
         if use_reg_cond:
-            c = 3 + sp
+            c = prog.first_shadow + sp
         else:
             prog.load_stack(2, sp)
             c = 2
 
-        prog.ifelse(dst, c, 0, f)
+        prog.select(dst, c, 0, f)
 
 
 class Const:
@@ -198,6 +200,40 @@ class Var:
         prog.load_mem(dst, mem.index(self.name))
 
 
+class Label:
+    def __init__(self, label):
+        self.label = label
+        self.is_pure = True
+
+    def __repr__(self):
+        return f"Label('{self.label}')"
+
+    def compile(self, dst, prog, mem, vt):
+        prog.set_label(self.label)
+        
+        
+class Branch:
+    def __init__(self, cond, true_label, false_label=None):
+        self.cond = cond
+        self.true_label = true_label
+        self.false_label = false_label
+        self.is_pure = (cond == True) or cond.is_pure
+
+    def __repr__(self):
+        return f"Label('{self.label}')"
+
+    def compile(self, dst, prog, mem, vt):
+        if self.cond == True:
+            prog.branch(self.true_label)
+            return
+
+        self.cond.compile(0, prog, mem, vt)                    
+        if self.false_label is None:
+            prog.branch_if(self.cond, self.true_label)
+        else:
+            prog.branch_if_else(self.cond, self.true_label, self.false_label)            
+            
+
 class Eq:
     def __init__(self, lhs, rhs):
         self.lhs = lhs
@@ -209,19 +245,6 @@ class Eq:
     def compile(self, dst, prog, mem, vt):
         self.rhs.compile(dst, prog, mem, vt)
         prog.save_mem(dst, mem.index(self.lhs.name))
-
-
-class EqDiff:
-    def __init__(self, lhs, rhs):
-        self.lhs = lhs
-        self.rhs = rhs
-
-    def __repr__(self):
-        return f"δ{self.lhs} = {self.rhs}"
-
-    def compile(self, dst, prog, mem, vt):
-        self.rhs.compile(dst, prog, mem, vt)
-        prog.save_mem(dst, mem.index_diff(self.lhs.name))
 
 
 class Model:
@@ -241,12 +264,12 @@ class Model:
         for eq in self.eqs:
             eq.compile(0, prog, mem, vt)
 
-        # we need to prepend and not append prologue
-        # because we don't know the stack size until
-        # after compiling the body of the function
-        prog.prepend_prologue()
         prog.append_epilogue(idx)
         prog.append_text_section(mem.consts, vt.vt())
+        # we need to prepend and not append prologue
+        # because we don't know the stack size until
+        # after compiling the body of the function        
+        prog.prepend_prologue()
 
 
 def is_pure(op):
