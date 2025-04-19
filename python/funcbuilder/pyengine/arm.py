@@ -263,6 +263,12 @@ class Arm(assembler.Assembler):
         # fcmge d(rd), d(rn), d(rm)
         self.append_word(0x7E60E400 | self.rd(rd) | self.rn(rn) | self.rm(rm))
         return self
+        
+    def fcmeq(self, rn, rm):
+        # fcmp d(rn), d(rm)
+        # updates flags
+        self.append_word(0x1E602000 | self.rn(rn) | self.rm(rm))
+        return self        
 
     # misc
     def blr(self, rn):
@@ -287,6 +293,12 @@ class Arm(assembler.Assembler):
 
     def b_ge(self, label):
         self.jump(label, code=0x5400000A)
+        
+    def tst(self, rn, rm):
+        # tst x(rn), x(rm)
+        # equivalent to ands wzr, x(rn), x(rm)
+        self.append_word(0xEA00001F | self.rn(rn) | self.rm(rm))
+        return self
 
     def ret(self):
         # ret
@@ -445,8 +457,24 @@ class ArmIR:
         self.arm.blr(0)
         if dst != 0:
             self.arm.fmov(dst, 0)
+            
+    def set_label(self, label):
+        self.arm.set_label(label)            
+            
+    def branch(self, label):
+        self.tst(0, 0)
+        self.arm.be(label)        
+        
+    def branch_if(self, cond, true_label):
+        self.arm.fcmp(0, 0)
+        self.arm.bne(true_label)                
+        
+    def branch_if_else(self, cond, true_label, false_label):
+        self.arm.fcmp(0, 0)
+        self.arm.bne(true_label)
+        self.arm.be(false_label)            
 
-    def ifelse(self, dst, cond, true_reg, false_reg):
+    def select(self, dst, cond, true_reg, false_reg):
         self.arm.bsl(cond, true_reg, false_reg)
         if cond != dst:
             self.arm.fmov(dst, cond)

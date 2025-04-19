@@ -4,63 +4,131 @@ from . import pyengine
 
 tree = pyengine.tree
 
+class Block:
+    def __init__(self, label):
+        self.label = label
+        self.eqs = []   # equations
+        self.hits = {}  # number of times each observable is used in this block
+        self.closure = None
+        
+    def list_merges(self, externals):
+        merges = {}         
+        for eq in self.eqs:
+            v = eq.lhs
+            if self.hits.get(v) == 1 and v not in externals:
+                merges[v] = eq.rhs                
+        return merges
+        
+    def arborize(self, externals):
+        """Merges expression trees if possible"""
+        merges = self.list_merges(externals)
+        eqs = []
+        
+        for eq in self.eqs:
+            lhs, rhs = eq.lhs, eq.rhs
+            
+            if isinstance(rhs, tree.Unary):
+                p = tree.Unary(
+                    rhs.op, 
+                    merges.get(rhs.arg, rhs.arg)
+                )                
+            elif isinstance(rhs, tree.Binary):
+                p = tree.Binary(
+                    rhs.op,
+                    merges.get(rhs.left, rhs.left),
+                    merges.get(rhs.right, rhs.right)                    
+                )
+            elif isinstance(eq.rhs, tree.Select):
+                p = tree.Select(
+                    merges.get(rhs.cond, rhs.cond),
+                    merges.get(rhs.true_val, rhs.true_val),
+                    merges.get(rhs.false_val, rhs.false_val),                    
+                )
+            elif isinstance(eq.rhs, tree.Var):                
+                p = merges.get(rhs, rhs)
+            else:
+                p = rhs
+                
+            if lhs in merges:
+                merges[lhs] = p
+            else:
+                eqs.append(tree.Eq(lhs, p))
+                
+        if self.closure is not None:
+            p = self.closure            
+            eqs.append(
+                tree.Branch(
+                    merges.get(p.cond, p.cond), 
+                    p.true_label, 
+                    p.false_label
+                )   
+            )
+                        
+        return eqs       
+
+
 class Builder:
     def __init__(self, *states):
         self.states = [tree.Var(x) for x in states]
         self.obs = []  # observables (intermediate variables)
-        self.eqs = []  # equations
-        self.hits = {}  # number of times each observable is used
+        self.blocks = [Block("@0")]
+        self.block = self.blocks[0]        
+        self.externals = set()
 
-    def new_var(self):
+    def new_var(self, rhs):
         """Creates a new observable"""
         k = len(self.obs)
         v = tree.Var(f"${k}")
+        self.block.hits[v] = 0        
+        self.block.eqs.append(tree.Eq(v, rhs))
         self.obs.append(v)
-        self.hits[v] = 0
-        return v
+        return v      
         
-    def invalidate_hits(self):
-        for v in self.hits:
-            self.hits[v] = 2            
+    def add_block(self, label=None):
+        if label is None:
+            label = f"@{len(self.blocks)}"
+        self.blocks.append(Block(label))
+        self.block = self.blocks[-1]
 
     def prep(self, a):
         """Called on each observable on the right hand side of an equation"""
         if isinstance(a, numbers.Number):
             return tree.Const(a)
-        if a in self.obs:
-            self.hits[a] += 1
+            
+        if a in self.block.hits:
+            self.block.hits[a] += 1
+        else:
+            self.externals.add(a) 
+            
         return a
 
     def append_unary(self, op, a):
         a = self.prep(a)
-        v = self.new_var()
-        self.eqs.append(tree.Eq(v, tree.Unary(op, a)))
-        return v
+        rhs = tree.Unary(op, a)
+        return self.new_var(rhs)
 
     def append_binary(self, op, a, b):
         a = self.prep(a)
         b = self.prep(b)
-        v = self.new_var()
-        self.eqs.append(tree.Eq(v, tree.Binary(op, a, b)))
-        return v            
+        rhs = tree.Binary(op, a, b)
+        return self.new_var(rhs)
 
     def append_select(self, cond, a, b):
         cond = self.prep(cond)
         a = self.prep(a)
         b = self.prep(b)
-        v = self.new_var()
-        self.eqs.append(tree.Eq(v, tree.Select(cond, a, b)))
-        return v
+        rhs = tree.Select(cond, a, b) 
+        return self.new_var(rhs)
         
     def init(self, a):
         a = self.prep(a)
-        v = self.new_var()
-        self.eqs.append(tree.Eq(v, a))
-        return v
+        return self.new_var(a)
         
     def assign(self, a, b):
-        b = self.prep(b)
-        self.eqs.append(tree.Eq(a, b))
+        assert isinstance(a, tree.Var)
+        b = self.prep(b)        
+        self.block.eqs.append(tree.Eq(a, b))
+        self.externals.add(a)
         return a
 
     def fadd(self, *a):
@@ -112,14 +180,8 @@ class Builder:
             t = self.append_unary("root", a)
             return self.append_unary("cube", t)
         else:
-            return self.append_binary("power", a, b)
-
-    def exp(self, a):
-        return self.append_unary("exp", a)
-
-    def log(self, a):
-        return self.append_unary("log", a)
-
+            return self.call("power", a, b)
+            
     def sqrt(self, a):
         return self.append_unary("root", a)
 
@@ -130,86 +192,58 @@ class Builder:
         return self.append_unary("cube", a)
 
     def recip(self, a):
-        return self.append_unary("recip", a)
+        return self.append_unary("recip", a)                
+
+    def exp(self, a):
+        return self.call("exp", a)
+
+    def log(self, a):
+        return self.call("log", a)
 
     def sin(self, a):
-        return self.append_unary("sin", a)
+        return self.call("sin", a)
 
     def cos(self, a):
-        return self.append_unary("cos", a)
+        return self.call("cos", a)
 
     def tan(self, a):
-        return self.append_unary("tan", a)
+        return self.call("tan", a)
 
     def sinh(self, a):
-        return self.append_unary("sinh", a)
+        return self.call("sinh", a)
 
     def cosh(self, a):
-        return self.append_unary("cosh", a)
+        return self.call("cosh", a)
 
     def tanh(self, a):
-        return self.append_unary("tanh", a)
+        return self.call("tanh", a)
 
     def asin(self, a):
-        return self.append_unary("arcsin", a)
+        return self.call("arcsin", a)
 
     def acos(self, a):
-        return self.append_unary("arccos", a)
+        return self.call("arccos", a)
 
     def atan(self, a):
-        return self.append_unary("arctan", a)
+        return self.call("arctan", a)
 
     def asinh(self, a):
-        return self.append_unary("arcsinh", a)
+        return self.call("arcsinh", a)
 
     def acosh(self, a):
-        return self.append_unary("arccosh", a)
+        return self.call("arccosh", a)
 
     def atanh(self, a):
-        return self.append_unary("arctanh", a)
+        return self.call("arctanh", a)
         
-    def call(fn, args):
-        if fn == "pow":
-            return self.exp(args[0], args[1])
-        elif fn == "exp":
-            return self.exp(args[0])     
-        elif fn == "log":
-            return self.log(args[0])
-        elif fn == "root":
-            return self.root(args[0])
-        elif fn == "square":
-            return self.square(args[0])
-        elif fn == "cube":
-            return self.cube(args[0])
-        elif fn == "recip":
-            return self.recip(args[0])
-        elif fn == "sin":
-            return self.sin(args[0])    
-        elif fn == "cos":
-            return self.cos(args[0])
-        elif fn == "tan":
-            return self.tan(args[0])
-        elif fn == "sinh":
-            return self.sinh(args[0])    
-        elif fn == "cosh":
-            return self.cosh(args[0])
-        elif fn == "tanh":
-            return self.tanh(args[0])
-        elif fn == "asin":
-            return self.asin(args[0])    
-        elif fn == "acos":
-            return self.acos(args[0])
-        elif fn == "atan":
-            return self.atan(args[0])
-        elif fn == "asinh":
-            return self.asinh(args[0])    
-        elif fn == "acosh":
-            return self.acosh(args[0])
-        elif fn == "atanh":
-            return self.atanh(args[0])            
-        else:
-            raise ValueError(f"undefined function name {fn}")
-
+    def call(self, fn, *args):
+        self.add_block()
+        args = [self.prep(arg) for arg in args]
+        rhs = tree.Call(fn, args)
+        v = self.new_var(rhs)
+        self.add_block()
+        return v
+   
     def lt(self, a, b):
         return self.append_binary("lt", a, b)
 
@@ -258,20 +292,26 @@ class Builder:
 
     def select(self, cond, a, b):
         return self.append_select(cond, a, b)    
-        
+                
     def set_label(self, label):
-        self.eqs.append(tree.Label(label))
+        if len(self.block.eqs) == 0:
+            self.block.label = label
+        else:
+            self.add_block(label)
         
     def branch(self, label):
-        self.eqs.append(tree.Branch(True, label))
+        self.block.closure = tree.Branch(True, label)
+        self.add_block()
         
     def cbranch(self, cond, true_label, false_label=None):
         cond = self.prep(cond)
-        self.eqs.append(tree.Branch(cond, true_label, false_label))
+        self.externals.add(cond)
+        self.block.closure = tree.Branch(cond, true_label, false_label)
+        self.add_block()
 
     def compile(self, y):
-        try:
-            eqs = self.arborize(y)
+        try:            
+            eqs = self.coalesce(y)
 
             model = tree.Model(                
                 self.states,  # states
@@ -279,7 +319,6 @@ class Builder:
                 eqs,  # eqs
             )
 
-            idx = self.obs.index(y)
             compiler = pyengine.PyCompiler(model, y, ty="native")
             func = compiler.func
             # to prevent compiler to deallocate before func, 
@@ -289,70 +328,16 @@ class Builder:
         except:
             raise ValueError(f"return variable {y} not found")
 
-    def merge(self, eqs, y, v):
-        """Moves an observable v and merges it into the
-        destination tree if it is used only once.
-        y is the output observable and cannot be moved.
-        """
-        try:
-            if v != y and self.hits[v] == 1:
-                idx = self.obs.index(v)
-                u = eqs[idx].rhs
-                eqs[idx] = None
-                return u
-        except:
-            return v
-        return v
-
-    def arborize(self, y):
-        """Merges expression trees if possible"""
+    def coalesce(self, y):
         eqs = []
+        externals = self.externals | {y}
+        
+        for b in self.blocks:
+            eqs.append(tree.Label(b.label))            
+            eqs.extend(b.arborize(externals))            
+                
+        return eqs                
 
-        for eq in self.eqs:
-            if isinstance(eq, tree.Label):
-                eqs.append(eq)
-            elif isinstance(eq, tree.Branch):
-                eqs.append(
-                    tree.Branch(
-                        self.merge(eqs, y, eq.cond),
-                        eq.true_label,
-                        eq.false_label
-                    )
-                )
-            elif isinstance(eq.rhs, tree.Unary):
-                eqs.append(
-                    tree.Eq(
-                        eq.lhs, tree.Unary(eq.rhs.op, self.merge(eqs, y, eq.rhs.arg))
-                    )
-                )
-            elif isinstance(eq.rhs, tree.Binary):
-                eqs.append(
-                    tree.Eq(
-                        eq.lhs,
-                        tree.Binary(
-                            eq.rhs.op,
-                            self.merge(eqs, y, eq.rhs.left),
-                            self.merge(eqs, y, eq.rhs.right),
-                        ),
-                    )
-                )
-            elif isinstance(eq.rhs, tree.Select):
-                eqs.append(
-                    tree.Eq(
-                        eq.lhs,
-                        tree.Select(
-                            self.merge(eqs, y, eq.rhs.cond),
-                            self.merge(eqs, y, eq.rhs.true_val),
-                            self.merge(eqs, y, eq.rhs.false_val),
-                        ),
-                    )
-                )
-            else:
-                eqs.append(eq)
-        # the equations of the observables that are merged
-        # is set to None in the merge function and
-        # are removed here
-        return [eq for eq in eqs if eq is not None]
 
 
 

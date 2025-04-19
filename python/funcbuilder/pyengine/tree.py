@@ -9,10 +9,9 @@ class Unary:
     def __init__(self, op, arg):
         self.op = op
         self.arg = arg
-        self.is_pure = arg.is_pure and is_pure(op)
 
     def __repr__(self):
-        return f"Unary[{self.is_pure}]('{self.op}', {self.arg})"
+        return f"Unary('{self.op}', {self.arg})"
 
     def compile(self, dst, prog, mem, vt):
         self.arg.compile(0, prog, mem, vt)
@@ -68,14 +67,13 @@ class Binary:
         self.op = op
         self.left = left
         self.right = right
-        self.is_pure = left.is_pure and right.is_pure and is_pure(op)
 
     def __repr__(self):
-        return f"Binary[{self.is_pure}]('{self.op}', {self.left}, {self.right})"
+        return f"Binary('{self.op}', {self.left}, {self.right})"
 
     def compile(self, dst, prog, mem, vt):
         sp = mem.push()
-        use_reg = sp < prog.count_shadows and self.left.is_pure
+        use_reg = sp < prog.count_shadows
 
         if use_reg:
             self.right.compile(prog.first_shadow + sp, prog, mem, vt)
@@ -124,21 +122,43 @@ class Binary:
             raise ValueError(f"binary op {self.op} not defined")
 
 
+class Call:
+    def __init__(self, fn, args):
+        self.fn = fn
+        self.args = args
+        
+    def __repr__(self):
+        return f"Call({self.fn},...)"
+        
+    def compile(self, dst, prog, mem, vt):
+        args = self.args
+        
+        if len(args) == 1:
+            assert(isinstance(args[0], Var) or isinstance(args[0], Const))
+            args[0].compile(0, prog, mem, vt)
+            prog.call_unary(dst, vt.find(self.fn))
+        elif len(self.args) == 2:
+            assert(isinstance(args[0], Var) or isinstance(args[0], Const))
+            assert(isinstance(args[1], Var) or isinstance(args[1], Const))
+            arg[0].compile(0, prog, mem, vt)
+            arg[1].compile(1, prog, mem, vt)
+            prog.call_binary(dst, vt.find(self.fn))
+        else:
+            raise ValueError("multi-variable call is not implemented yet")            
+
+
 class Select:
     def __init__(self, cond, true_val, false_val):
         self.cond = cond
         self.true_val = true_val
-        self.false_val = false_val
-        self.is_pure = cond.is_pure and true_val.is_pure and false_val.is_pure
+        self.false_val = false_val        
 
     def __repr__(self):
-        return f"IfElse[{self.is_pure}]({self.cond}, {self.true_val}, {self.false_val})"
+        return f"IfElse({self.cond}, {self.true_val}, {self.false_val})"
 
     def compile(self, dst, prog, mem, vt):
         sp = mem.push()
-        use_reg_cond = (
-            sp < prog.count_shadows and self.true_val.is_pure and self.false_val.is_pure
-        )
+        use_reg_cond = sp < prog.count_shadows
 
         if use_reg_cond:
             self.cond.compile(prog.first_shadow + sp, prog, mem, vt)
@@ -147,7 +167,7 @@ class Select:
             prog.save_stack(0, sp)
 
         sp = mem.push()
-        use_reg_false = sp < COUNT_TEMP_XMM and self.true_val.is_pure
+        use_reg_false = sp < COUNT_TEMP_XMM
 
         if use_reg_false:
             self.false_val.compile(prog.first_shadow + sp, prog, mem, vt)
@@ -178,8 +198,7 @@ class Select:
 
 class Const:
     def __init__(self, val):
-        self.val = float(val)
-        self.is_pure = True
+        self.val = float(val)        
 
     def __repr__(self):
         return f"Const({self.val})"
@@ -191,7 +210,6 @@ class Const:
 class Var:
     def __init__(self, name):
         self.name = str(name)
-        self.is_pure = True
 
     def __repr__(self):
         return f"Var('{self.name}')"
@@ -202,8 +220,7 @@ class Var:
 
 class Label:
     def __init__(self, label):
-        self.label = label
-        self.is_pure = True
+        self.label = label        
 
     def __repr__(self):
         return f"Label('{self.label}')"
@@ -217,10 +234,9 @@ class Branch:
         self.cond = cond
         self.true_label = true_label
         self.false_label = false_label
-        self.is_pure = (cond == True) or cond.is_pure
 
     def __repr__(self):
-        return f"Label('{self.label}')"
+        return f"Branch({self.true_label}))"
 
     def compile(self, dst, prog, mem, vt):
         if self.cond == True:
@@ -271,30 +287,6 @@ class Model:
         # after compiling the body of the function        
         prog.prepend_prologue()
 
-
-def is_pure(op):
-    ops = [
-        "plus",
-        "minus",
-        "times",
-        "division",
-        "square",
-        "cube",
-        "root",
-        "recip",
-        "abs",
-        "neg",
-        "lt",
-        "leq",
-        "gt",
-        "geq",
-        "eq",
-        "neq",
-        "and",
-        "or",
-        "xor",
-    ]
-    return op in ops
 
 
 
