@@ -67,6 +67,21 @@ class Block:
         return eqs       
 
 
+class Phi:
+    def __init__(self, parent):
+        self.parent = parent
+        self.var = None
+        
+    def add_incoming(self, a):        
+        a = self.parent.prep(a)
+        
+        if self.var is None:
+            self.var = self.parent.new_var(a)
+            self.parent.externals.add(self.var)
+        else:        
+            self.parent.block.eqs.append(tree.Eq(self.var, a))
+        
+
 class Builder:
     def __init__(self, *states):
         self.states = [tree.Var(x) for x in states]
@@ -95,6 +110,11 @@ class Builder:
         if isinstance(a, numbers.Number):
             return tree.Const(a)
             
+        if isinstance(a, Phi):
+            if a.var is None:
+                raise ValueError("cannot use an uninitiated Phi. Every Phi should have at least one incoming link.")
+            a = a.var            
+            
         if a in self.block.hits:
             self.block.hits[a] += 1
         else:
@@ -118,18 +138,10 @@ class Builder:
         a = self.prep(a)
         b = self.prep(b)
         rhs = tree.Select(cond, a, b) 
-        return self.new_var(rhs)
+        return self.new_var(rhs)        
         
-    def init(self, a):
-        a = self.prep(a)
-        return self.new_var(a)
-        
-    def assign(self, a, b):
-        assert isinstance(a, tree.Var)
-        b = self.prep(b)        
-        self.block.eqs.append(tree.Eq(a, b))
-        self.externals.add(a)
-        return a
+    def phi(self):
+        return Phi(self)
 
     def fadd(self, *a):
         if len(a) == 1:
@@ -311,6 +323,9 @@ class Builder:
 
     def compile(self, y):
         try:            
+            if isinstance(y, Phi):
+                y = y.var
+                
             eqs = self.coalesce(y)
 
             model = tree.Model(                
