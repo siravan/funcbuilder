@@ -30,34 +30,6 @@ class Unary:
             prog.cube(dst)
         elif self.op == "recip":
             prog.recip(dst)
-        elif self.op == "exp":
-            prog.call_unary(dst, vt.find("exp"))
-        elif self.op == "ln":
-            prog.call_unary(dst, vt.find("log"))
-        elif self.op == "sin":
-            prog.call_unary(dst, vt.find("sin"))
-        elif self.op == "cos":
-            prog.call_unary(dst, vt.find("cos"))
-        elif self.op == "tan":
-            prog.call_unary(dst, vt.find("tan"))
-        elif self.op == "sinh":
-            prog.call_unary(dst, vt.find("sinh"))
-        elif self.op == "cosh":
-            prog.call_unary(dst, vt.find("cosh"))
-        elif self.op == "tanh":
-            prog.call_unary(dst, vt.find("tanh"))
-        elif self.op == "arcsin":
-            prog.call_unary(dst, vt.find("asin"))
-        elif self.op == "arccos":
-            prog.call_unary(dst, vt.find("acos"))
-        elif self.op == "arctan":
-            prog.call_unary(dst, vt.find("atan"))
-        elif self.op == "arcsinh":
-            prog.call_unary(dst, vt.find("asinh"))
-        elif self.op == "arccosh":
-            prog.call_unary(dst, vt.find("acosh"))
-        elif self.op == "arctanh":
-            prog.call_unary(dst, vt.find("atanh"))
         else:
             raise ValueError(f"unary op {self.op} not defined")
 
