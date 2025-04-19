@@ -264,7 +264,7 @@ class Arm(assembler.Assembler):
         self.append_word(0x7E60E400 | self.rd(rd) | self.rn(rn) | self.rm(rm))
         return self
         
-    def fcmeq(self, rn, rm):
+    def fcmp(self, rn, rm):
         # fcmp d(rn), d(rm)
         # updates flags
         self.append_word(0x1E602000 | self.rn(rn) | self.rm(rm))
@@ -463,16 +463,16 @@ class ArmIR:
             
     def branch(self, label):
         self.tst(0, 0)
-        self.arm.be(label)        
+        self.arm.b_eq(label)        
         
     def branch_if(self, cond, true_label):
         self.arm.fcmp(0, 0)
-        self.arm.bne(true_label)                
+        self.arm.b_ne(true_label)                
         
     def branch_if_else(self, cond, true_label, false_label):
         self.arm.fcmp(0, 0)
-        self.arm.bne(true_label)
-        self.arm.be(false_label)            
+        self.arm.b_ne(true_label)
+        self.arm.b_eq(false_label)            
 
     def select(self, dst, cond, true_reg, false_reg):
         self.arm.bsl(cond, true_reg, false_reg)
