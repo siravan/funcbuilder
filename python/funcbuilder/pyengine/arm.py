@@ -3,7 +3,7 @@ import struct
 from . import assembler
 
 def reg_index(x):
-    if x == "sp":
+    if x == "sp" or x == "zr":
         return 31
     elif x == "lr":
         return 30
@@ -477,11 +477,10 @@ class ArmIR:
             self.arm.fmov(dst, cond)            
             
     def select_if(self, dst, r):
-        self.arm.and_(dst, dst, r)
+        self.arm.bsl(dst, r, "zr")
         
-    def select_else(self, dst, r):
-        self.arm.neg(dst, dst)
-        self.arm.and_(dst, dst, r)
+    def select_else(self, dst, r):        
+        self.arm.bsl(dst, "zr", r)
 
     def prepend_prologue(self):
         # note that we generate the prologue after the main body
