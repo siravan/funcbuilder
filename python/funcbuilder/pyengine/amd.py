@@ -413,8 +413,8 @@ class AmdSysVStack:
     def __init__(self, mem):
         self.mem = mem
         # shadows are XMM/YMM registers that shadow the stack slots
-        self.first_shadow = 3
-        self.count_shadows = 13
+        self.first_shadow = 1
+        self.count_shadows = 15
         self.count_simd_args = 8
         
     def offset(self, idx):
@@ -429,7 +429,8 @@ class AmdSysVStack:
             return 8 * (-(1 + idx - max(0, ns - 8)))
             
     def frame_size(self):
-        cap = self.mem.stack_size + min(self.mem.count_states, 8) + self.mem.count_obs
+        # cap = self.mem.stack_size + min(self.mem.count_states, 8) + self.mem.count_obs
+        cap = min(self.mem.count_states, 8) + self.mem.count_obs
         pad = cap & 1
         return 8 * (cap + pad)
         
@@ -438,8 +439,8 @@ class AmdWindowsStack:
     def __init__(self, mem):
         self.mem = mem
         # shadows are XMM/YMM registers that shadow the stack slots
-        self.first_shadow = 3   # XMM3-XMM5
-        self.count_shadows = 3 
+        self.first_shadow = 1   # XMM1-XMM5
+        self.count_shadows = 5 
         self.count_simd_args = 4
         
     def offset(self, idx):
@@ -472,12 +473,6 @@ class AmdIR:
     def buf(self):
         return self.amd.buf
 
-    def load_stack(self, dst, idx):
-        self.amd.vmovsd_xmm_mem(dst, "rsp", 8 * idx)
-
-    def save_stack(self, src, idx):
-        self.amd.vmovsd_mem_xmm("rsp", 8 * idx, src)
-
     def load_mem(self, dst, idx):
         offset = self.stack.offset(idx)
         self.amd.vmovsd_xmm_mem(dst, "rbp", offset)
@@ -490,70 +485,70 @@ class AmdIR:
         self.amd.vmovsd_mem_xmm("rbp", offset, src)
 
     def neg(self, dst):
-        self.load_const(1, self.mem.constant(-0.0))
-        self.amd.vxorpd(dst, 0, 1)
+        self.load_const(0, self.mem.constant(-0.0))
+        self.amd.vxorpd(dst, dst, 0)
 
     def abs(self, dst):
-        self.load_const(1, self.mem.constant(-0.0))
-        self.amd.vandnpd(dst, 1, 0)
+        self.load_const(0, self.mem.constant(-0.0))
+        self.amd.vandnpd(dst, 0, dst)
 
     def root(self, dst):
-        self.amd.vsqrtsd(dst, 0)
+        self.amd.vsqrtsd(dst, dst)
 
     def square(self, dst):
-        self.amd.vmulsd(dst, 0, 0)
+        self.amd.vmulsd(dst, dst, dst)
 
     def cube(self, dst):
-        self.amd.vmulsd(1, 0, 0)
-        self.amd.vmulsd(dst, 0, 1)
+        self.amd.vmulsd(0, dst, dst)
+        self.amd.vmulsd(dst, dst, 0)
 
     def recip(self, dst):
-        self.load_const(1, self.mem.constant(1.0))
-        self.amd.vdivsd(dst, 1, 0)
+        self.load_const(0, self.mem.constant(1.0))
+        self.amd.vdivsd(dst, 0, dst)
 
     def plus(self, dst, r):
-        self.amd.vaddsd(dst, 0, r)
+        self.amd.vaddsd(dst, dst, r)
 
     def minus(self, dst, r):
-        self.amd.vsubsd(dst, 0, r)
+        self.amd.vsubsd(dst, dst, r)
 
     def times(self, dst, r):
-        self.amd.vmulsd(dst, 0, r)
+        self.amd.vmulsd(dst, dst, r)
 
     def divide(self, dst, r):
-        self.amd.vdivsd(dst, 0, r)
+        self.amd.vdivsd(dst, dst, r)
 
     def gt(self, dst, r):
-        self.amd.vcmpnlesd(dst, 0, r)
+        self.amd.vcmpnlesd(dst, dst, r)
 
     def geq(self, dst, r):
-        self.amd.vcmpnltsd(dst, 0, r)
+        self.amd.vcmpnltsd(dst, dst, r)
 
     def lt(self, dst, r):
-        self.amd.vcmpltsd(dst, 0, r)
+        self.amd.vcmpltsd(dst, dst, r)
 
     def leq(self, dst, r):
-        self.amd.vcmplesd(dst, 0, r)
+        self.amd.vcmplesd(dst, dst, r)
 
     def eq(self, dst, r):
-        self.amd.vcmpeqsd(dst, 0, r)
+        self.amd.vcmpeqsd(dst, dst, r)
 
     def neq(self, dst, r):
-        self.amd.vcmpneqsd(dst, 0, r)        
+        self.amd.vcmpneqsd(dst, dst, r)        
 
     def and_(self, dst, r):
-        self.amd.vandpd(dst, 0, r)
+        self.amd.vandpd(dst, dst, r)
 
     def or_(self, dst, r):
-        self.amd.vorpd(dst, 0, r)
+        self.amd.vorpd(dst, dst, r)
 
     def xor(self, dst, r):
-        self.amd.vxorpd(dst, 0, r)
+        self.amd.vxorpd(dst, dst, r)
     
     def not_(self, dst):
-        self.amd.vxorpd(1, 1, 1)
-        self.amd.vcmpeqsd(1, 1, 1)
-        self.amd.vxorpd(dst, 0, 1)        
+        self.amd.vxorpd(0, 0, 0)
+        self.amd.vcmpeqsd(0, 0, 0)
+        self.amd.vxorpd(dst, dst, 0)        
 
     def call_unary(self, dst, idx):
         self.amd.vzeroupper()
@@ -599,11 +594,11 @@ class AmdIR:
         self.amd.jmp(label)        
         
     def branch_if(self, cond, true_label):
-        self.amd.vucomisd(0, 0)
+        self.amd.vucomisd(cond, cond)
         self.amd.jpe(true_label)                
         
     def branch_if_else(self, cond, true_label, false_label):
-        self.amd.vucomisd(0, 0)
+        self.amd.vucomisd(cond, cond)
         self.amd.jpe(true_label)
         self.amd.jump_(false_label)
 
@@ -611,6 +606,16 @@ class AmdIR:
         self.amd.vandpd(true_reg, true_reg, cond)
         self.amd.vandnpd(cond, cond, false_reg)
         self.amd.vorpd(dst, true_reg, cond)
+        
+    def select_if(self, dst, r):
+        self.amd.vandpd(dst, dst, r)
+        # self.select_dst = dst
+        self.true_reg = r
+        
+    def select_else(self, dst, r):
+        self.amd.vandnpd(dst, dst, r)
+        # assert(dst == self.select_dst)
+        # self.select(dst, dst, self.true_reg, r)
 
     def prepend_prologue(self):
         # note that we generate the prologue after the main body

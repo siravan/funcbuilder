@@ -38,12 +38,7 @@ class Block:
                     merges.get(rhs.left, rhs.left),
                     merges.get(rhs.right, rhs.right)                    
                 )
-            elif isinstance(eq.rhs, tree.Select):
-                p = tree.Select(
-                    merges.get(rhs.cond, rhs.cond),
-                    merges.get(rhs.true_val, rhs.true_val),
-                    merges.get(rhs.false_val, rhs.false_val),                    
-                )
+                p.idx = rhs.idx
             elif isinstance(eq.rhs, tree.Var):                
                 p = merges.get(rhs, rhs)
             else:
@@ -96,6 +91,7 @@ class Builder:
         v = tree.Var(f"${k}")
         self.block.hits[v] = 0        
         self.block.eqs.append(tree.Eq(v, rhs))
+        rhs.idx = k
         self.obs.append(v)
         return v      
         
@@ -132,13 +128,6 @@ class Builder:
         b = self.prep(b)
         rhs = tree.Binary(op, a, b)
         return self.new_var(rhs)
-
-    def append_select(self, cond, a, b):
-        cond = self.prep(cond)
-        a = self.prep(a)
-        b = self.prep(b)
-        rhs = tree.Select(cond, a, b) 
-        return self.new_var(rhs)        
         
     def phi(self):
         return Phi(self)
@@ -231,22 +220,22 @@ class Builder:
         return self.call("tanh", a)
 
     def asin(self, a):
-        return self.call("arcsin", a)
+        return self.call("asin", a)
 
     def acos(self, a):
-        return self.call("arccos", a)
+        return self.call("acos", a)
 
     def atan(self, a):
-        return self.call("arctan", a)
+        return self.call("atan", a)
 
     def asinh(self, a):
-        return self.call("arcsinh", a)
+        return self.call("asinh", a)
 
     def acosh(self, a):
-        return self.call("arccosh", a)
+        return self.call("acosh", a)
 
     def atanh(self, a):
-        return self.call("arctanh", a)
+        return self.call("atanh", a)
         
     def call(self, fn, *args):
         self.add_block()
@@ -302,8 +291,10 @@ class Builder:
     def not_(self, a, b):
         return self.append_binary("not", a, b)
 
-    def select(self, cond, a, b):
-        return self.append_select(cond, a, b)    
+    def select(self, cond, a, b):        
+        a = self.append_binary("select_if", cond, a)
+        b = self.append_binary("select_else", cond, b)        
+        return self.or_(a, b)
                 
     def set_label(self, label):
         if len(self.block.eqs) == 0:
@@ -321,7 +312,7 @@ class Builder:
         self.block.closure = tree.Branch(cond, true_label, false_label)
         self.add_block()
 
-    def compile(self, y):
+    def compile(self, y, sig=None):
         try:            
             if isinstance(y, Phi):
                 y = y.var
@@ -334,7 +325,7 @@ class Builder:
                 eqs,  # eqs
             )
 
-            compiler = pyengine.PyCompiler(model, y, ty="native")
+            compiler = pyengine.PyCompiler(model, y, ty="native", sig=sig)
             func = compiler.func
             # to prevent compiler to deallocate before func, 
             # since compiler holds the actual code, func is just a wrapper

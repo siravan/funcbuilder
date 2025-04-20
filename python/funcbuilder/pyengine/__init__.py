@@ -225,14 +225,17 @@ class Code:
 
 
 class PyCompiler:
-    def __init__(self, model, y, ty="native"):
+    def __init__(self, model, y, ty="native", sig=None):
         self.mem = Memory(model)
         self.vt = VirtualTable()
         self.prog = self.assembler(ty)(self.mem)
         idx = self.mem.index(y)
         model.compile(idx, self.prog, self.mem, self.vt)
         
-        fac = ctypes.CFUNCTYPE(*[ctypes.c_double for _ in range(self.mem.count_states+1)])
+        if sig == None:
+            sig = [ctypes.c_double for _ in range(self.mem.count_states+1)]
+            
+        fac = ctypes.CFUNCTYPE(*sig)
 
         self.code = Code(self.prog.buf())
         self.func = fac(self.code.addr)

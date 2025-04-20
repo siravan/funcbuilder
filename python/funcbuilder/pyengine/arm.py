@@ -209,8 +209,8 @@ class Arm(assembler.Assembler):
         return self
 
     # logical ops
-    def vand(self, rd, rn, rm):
-        # `vand` instead of `and` because `and` is a reserved word
+    def and_(self, rd, rn, rm):
+        # `and_` instead of `and` because `and` is a reserved word
         # and v(rd).8b, v(rn).8b, v(rm).8b
         self.append_word(0x0E201C00 | self.rd(rd) | self.rn(rn) | self.rm(rm))
         return self
@@ -231,8 +231,8 @@ class Arm(assembler.Assembler):
         self.append_word(0x2E601C00 | self.rd(rd) | self.rn(rn) | self.rm(rm))
         return self
 
-    def vnot(self, rd, rn):
-        # `vnot` instead of `not` because `not` is a reserved word
+    def not_(self, rd, rn):
+        # `not_` instead of `not` because `not` is a reserved word
         # not v(rd).8b, v(rn).8b, v(rm).8b
         self.append_word(0x2E205800 | self.rd(rd) | self.rn(rn))
         return self
@@ -367,82 +367,79 @@ class ArmIR:
     def buf(self):
         return self.arm.buf
 
-    def load_stack(self, dst, idx):
-        self.arm.ldr_d(dst, "sp", 8 * idx)
-
-    def save_stack(self, src, idx):
-        self.arm.str_d(src, "sp", 8 * idx)
-
     def load_mem(self, dst, idx):
         offset = self.stack.offset(idx)
-        self.arm.ldr_d(dst, "fp", offset)
+        self.arm.ldr_d(dst, "sp", offset)
 
     def save_mem(self, src, idx):
         offset = self.stack.offset(idx)
-        self.arm.str_d(src, "fp", offset)
+        self.arm.str_d(src, "sp", offset)
 
     def load_const(self, dst, idx):
         self.arm.ldr_d_label(dst, 2*idx+1) 
 
     def neg(self, dst):
-        self.arm.fneg(dst, 0)
+        self.arm.fneg(dst, dst)
 
     def abs(self, dst):
-        self.arm.fabs(dst, 0)
+        self.arm.fabs(dst, dst)
 
     def root(self, dst):
-        self.arm.fsqrt(dst, 0)
+        self.arm.fsqrt(dst, dst)
 
     def square(self, dst):
-        self.arm.fmul(dst, 0, 0)
+        self.arm.fmul(dst, dst, dst)
 
     def cube(self, dst):
-        self.arm.fmul(1, 0, 0)
-        self.arm.fmul(dst, 0, 1)
+        self.arm.fmul(0, dst, dst)
+        self.arm.fmul(dst, dst, 0)
 
     def recip(self, dst):
-        self.arm.fmov_const(1, 1.0)
-        self.arm.fdiv(dst, 1, 0)
+        self.arm.fmov_const(0, 1.0)
+        self.arm.fdiv(dst, 0, dst)
 
     def plus(self, dst, r):
-        self.arm.fadd(dst, 0, r)
+        self.arm.fadd(dst, dst, r)
 
     def minus(self, dst, r):
-        self.arm.fsub(dst, 0, r)
+        self.arm.fsub(dst, dst, r)
 
     def times(self, dst, r):
-        self.arm.fmul(dst, 0, r)
+        self.arm.fmul(dst, dst, r)
 
     def divide(self, dst, r):
-        self.arm.fdiv(dst, 0, r)
+        self.arm.fdiv(dst, dst, r)
 
     def gt(self, dst, r):
-        self.arm.fcmgt(dst, 0, r)
+        self.arm.fcmgt(dst, dst, r)
 
     def geq(self, dst, r):
-        self.arm.fcmge(dst, 0, r)
+        self.arm.fcmge(dst, dst, r)
 
     def lt(self, dst, r):
-        self.arm.fcmlt(dst, 0, r)
+        self.arm.fcmlt(dst, dst, r)
 
     def leq(self, dst, r):
-        self.arm.fcmle(dst, 0, r)
+        self.arm.fcmle(dst, dst, r)
 
     def eq(self, dst, r):
-        self.arm.fcmeq(dst, 0, r)
+        self.arm.fcmeq(dst, dst, r)
 
     def neq(self, dst, r):
-        self.arm.fcmeq(dst, 0, r)
-        self.arm.vnot(0, 0)
+        self.arm.fcmeq(dst, dst, r)
+        self.arm.vnot(dst, dst)
 
-    def boolean_and(self, dst, r):
-        self.arm.vand(dst, 0, r)
+    def and_(self, dst, r):
+        self.arm.and_(dst, dst, r)
 
-    def boolean_or(self, dst, r):
-        self.arm.orr(dst, 0, r)
+    def or_(self, dst, r):
+        self.arm.orr(dst, dst, r)
 
-    def boolean_xor(self, dst, r):
-        self.arm.eor(dst, 0, r)
+    def xor(self, dst, r):
+        self.arm.eor(dst, dst, r)
+        
+    def not_(self, dst):
+        self.arm.not_(dst, dst)
 
     def call_unary(self, dst, idx):
         self.arm.ldr_x_label(0, 2*idx)
@@ -462,22 +459,29 @@ class ArmIR:
         self.arm.set_label(label)            
             
     def branch(self, label):
-        self.tst(0, 0)
+        self.tst(dst, dst)
         self.arm.b_eq(label)        
         
     def branch_if(self, cond, true_label):
-        self.arm.fcmp(0, 0)
+        self.arm.fcmp(dst, dst)
         self.arm.b_ne(true_label)                
         
     def branch_if_else(self, cond, true_label, false_label):
-        self.arm.fcmp(0, 0)
+        self.arm.fcmp(dst, dst)
         self.arm.b_ne(true_label)
         self.arm.b_eq(false_label)            
 
     def select(self, dst, cond, true_reg, false_reg):
         self.arm.bsl(cond, true_reg, false_reg)
         if cond != dst:
-            self.arm.fmov(dst, cond)
+            self.arm.fmov(dst, cond)            
+            
+    def select_if(self, dst, r):
+        self.arm.and_(dst, dst, r)
+        
+    def select_else(self, dst, r):
+        self.arm.neg(dst, dst)
+        self.arm.and_(dst, dst, r)
 
     def prepend_prologue(self):
         # note that we generate the prologue after the main body
@@ -491,7 +495,7 @@ class ArmIR:
         self.arm.stp_x("fp", "lr", "sp", 0)
         self.arm.sub_imm("sp", "sp", top)
         self.arm.mov("fp", "sp")
-        self.arm.sub_imm("sp", "sp", bottom)
+        # self.arm.sub_imm("sp", "sp", bottom)
         
         for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
             self.save_mem(i, i)
@@ -503,7 +507,7 @@ class ArmIR:
         bottom = self.stack.bottom_size()
         
         self.load_mem(0, idx)
-        self.arm.add_imm("sp", "sp", top + bottom)
+        self.arm.add_imm("sp", "sp", top)
         self.arm.ldp_x("fp", "lr", "sp", 0)
         self.arm.add_imm("sp", "sp", 16)
         self.arm.ret()

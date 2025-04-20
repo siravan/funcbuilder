@@ -14,7 +14,7 @@ class Unary:
         return f"Unary('{self.op}', {self.arg})"
 
     def compile(self, dst, prog, mem, vt):
-        self.arg.compile(0, prog, mem, vt)
+        self.arg.compile(dst, prog, mem, vt)
 
         if self.op == "neg":
             prog.neg(dst)
@@ -44,23 +44,23 @@ class Binary:
         return f"Binary('{self.op}', {self.left}, {self.right})"
 
     def compile(self, dst, prog, mem, vt):
-        sp = mem.push()
-        use_reg = sp < prog.count_shadows
+        sp = mem.push()        
 
-        if use_reg:
+        if sp < prog.count_shadows:
             self.right.compile(prog.first_shadow + sp, prog, mem, vt)
         else:
-            self.right.compile(0, prog, mem, vt)
-            prog.save_stack(0, sp)
+            self.right.compile(dst, prog, mem, vt)
+            prog.save_mem(dst, self.idx)
 
-        self.left.compile(0, prog, mem, vt)
-        sp = mem.pop()
+        self.left.compile(dst, prog, mem, vt)
 
-        if use_reg:
+        if sp < prog.count_shadows:
             r = prog.first_shadow + sp
         else:
-            prog.load_stack(1, sp)
-            r = 1
+            prog.load_mem(0, self.idx)
+            r = 0
+            
+        mem.pop()            
 
         if self.op == "plus":
             prog.plus(dst, r)
@@ -90,6 +90,10 @@ class Binary:
             prog.or_(dst, r)
         elif self.op == "xor":
             prog.xor(dst, r)        
+        elif self.op == "select_if":
+            prog.select_if(dst, r)
+        elif self.op == "select_else":
+            prog.select_else(dst, r)                        
         else:
             raise ValueError(f"binary op {self.op} not defined")
 
@@ -117,56 +121,7 @@ class Call:
             prog.call_binary(dst, vt.find(self.fn))
         else:
             raise ValueError("multi-variable call is not implemented yet")            
-
-
-class Select:
-    def __init__(self, cond, true_val, false_val):
-        self.cond = cond
-        self.true_val = true_val
-        self.false_val = false_val        
-
-    def __repr__(self):
-        return f"IfElse({self.cond}, {self.true_val}, {self.false_val})"
-
-    def compile(self, dst, prog, mem, vt):
-        sp = mem.push()
-        use_reg_cond = sp < prog.count_shadows
-
-        if use_reg_cond:
-            self.cond.compile(prog.first_shadow + sp, prog, mem, vt)
-        else:
-            self.cond.compile(0, prog, mem, vt)
-            prog.save_stack(0, sp)
-
-        sp = mem.push()
-        use_reg_false = sp < COUNT_TEMP_XMM
-
-        if use_reg_false:
-            self.false_val.compile(prog.first_shadow + sp, prog, mem, vt)
-        else:
-            self.false_val.compile(0, prog, mem, vt)
-            prog.save_stack(0, sp)
-
-        self.true_val.compile(0, prog, mem, vt)
-
-        sp = mem.pop()
-
-        if use_reg_false:
-            f = prog.first_shadow + sp
-        else:
-            prog.load_stack(1, sp)
-            f = 1
-
-        sp = mem.pop()
-
-        if use_reg_cond:
-            c = prog.first_shadow + sp
-        else:
-            prog.load_stack(2, sp)
-            c = 2
-
-        prog.select(dst, c, 0, f)
-
+            
 
 class Const:
     def __init__(self, val):
@@ -215,11 +170,11 @@ class Branch:
             prog.branch(self.true_label)
             return
 
-        self.cond.compile(0, prog, mem, vt)                    
+        self.cond.compile(dst, prog, mem, vt)                    
         if self.false_label is None:
-            prog.branch_if(self.cond, self.true_label)
+            prog.branch_if(dst, self.true_label)
         else:
-            prog.branch_if_else(self.cond, self.true_label, self.false_label)            
+            prog.branch_if_else(dst, self.true_label, self.false_label)            
             
 
 class Eq:
