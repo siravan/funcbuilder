@@ -12,7 +12,7 @@ def binom(B, n, k):
         r3 = B.fadd(r1, r2)
         return r3
         
-n = 15
+n = 10
 k = 7        
         
 r = binom(B, n, k)

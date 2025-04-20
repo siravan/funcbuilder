@@ -459,15 +459,15 @@ class ArmIR:
         self.arm.set_label(label)            
             
     def branch(self, label):
-        self.tst(dst, dst)
+        self.tst("zr", "zr")
         self.arm.b_eq(label)        
         
     def branch_if(self, cond, true_label):
-        self.arm.fcmp(dst, dst)
+        self.arm.fcmp(cond, cond)
         self.arm.b_ne(true_label)                
         
     def branch_if_else(self, cond, true_label, false_label):
-        self.arm.fcmp(dst, dst)
+        self.arm.fcmp(cond, cond)
         self.arm.b_ne(true_label)
         self.arm.b_eq(false_label)            
 
@@ -477,10 +477,13 @@ class ArmIR:
             self.arm.fmov(dst, cond)            
             
     def select_if(self, dst, r):
-        self.arm.bsl(dst, r, "zr")
+        #self.arm.bsl(dst, r, "zr")
+        self.arm.and_(dst, dst, r)
         
     def select_else(self, dst, r):        
-        self.arm.bsl(dst, "zr", r)
+        #self.arm.bsl(dst, "zr", r)
+        self.arm.not_(dst, dst)
+        self.arm.and_(dst, dst, r)
 
     def prepend_prologue(self):
         # note that we generate the prologue after the main body
