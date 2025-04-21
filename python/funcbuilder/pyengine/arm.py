@@ -364,12 +364,7 @@ class ArmStack:
     def top_size(self):
         cap = min(self.mem.count_states, self.count_simd_args) + self.mem.count_obs
         pad = cap & 1
-        return 8 * (cap + pad)  
-            
-    def bottom_size(self):
-        cap = self.mem.stack_size
-        pad = cap & 1
-        return 8 * (cap + pad)
+        return 8 * (cap + pad)             
 
 
 class ArmIR:
@@ -382,6 +377,9 @@ class ArmIR:
 
     def buf(self):
         return self.arm.buf
+        
+    def fmov(self, dst, r):
+        self.arm.fmov(dst, r)        
 
     def load_mem(self, dst, idx):    
         offset = self.stack.offset(idx)
@@ -423,45 +421,45 @@ class ArmIR:
         self.arm.fmov_const(0, 1.0)
         self.arm.fdiv(dst, 0, dst)
 
-    def plus(self, dst, r):
-        self.arm.fadd(dst, dst, r)
+    def plus(self, dst, l, r):
+        self.arm.fadd(dst, l, r)
 
-    def minus(self, dst, r):
-        self.arm.fsub(dst, dst, r)
+    def minus(self, dst, l, r):
+        self.arm.fsub(dst, l, r)
 
-    def times(self, dst, r):
-        self.arm.fmul(dst, dst, r)
+    def times(self, dst, l, r):
+        self.arm.fmul(dst, l, r)
 
-    def divide(self, dst, r):
-        self.arm.fdiv(dst, dst, r)
+    def divide(self, dst, l, r):
+        self.arm.fdiv(dst, l, r)
 
-    def gt(self, dst, r):
-        self.arm.fcmgt(dst, dst, r)
+    def gt(self, dst, l, r):
+        self.arm.fcmgt(dst, l, r)
 
-    def geq(self, dst, r):
-        self.arm.fcmge(dst, dst, r)
+    def geq(self, dst, l, r):
+        self.arm.fcmge(dst, l, r)
 
-    def lt(self, dst, r):
-        self.arm.fcmlt(dst, dst, r)
+    def lt(self, dst, l, r):
+        self.arm.fcmlt(dst, l, r)
 
-    def leq(self, dst, r):
-        self.arm.fcmle(dst, dst, r)
+    def leq(self, dst, l, r):
+        self.arm.fcmle(dst, l, r)
 
-    def eq(self, dst, r):
-        self.arm.fcmeq(dst, dst, r)
+    def eq(self, dst, l, r):
+        self.arm.fcmeq(dst, l, r)
 
-    def neq(self, dst, r):
-        self.arm.fcmeq(dst, dst, r)
+    def neq(self, dst, l, r):
+        self.arm.fcmeq(dst, l, r)
         self.arm.vnot(dst, dst)
 
-    def and_(self, dst, r):
-        self.arm.and_(dst, dst, r)
+    def and_(self, dst, l, r):
+        self.arm.and_(dst, l, r)
 
-    def or_(self, dst, r):
-        self.arm.orr(dst, dst, r)
+    def or_(self, dst, l, r):
+        self.arm.orr(dst, l, r)
 
-    def xor(self, dst, r):
-        self.arm.eor(dst, dst, r)
+    def xor(self, dst, l, r):
+        self.arm.eor(dst, l, r)
         
     def not_(self, dst):
         self.arm.not_(dst, dst)
@@ -501,12 +499,12 @@ class ArmIR:
         if cond != dst:
             self.arm.fmov(dst, cond)            
             
-    def select_if(self, dst, r):
-        self.arm.and_(dst, dst, r)
+    def select_if(self, dst, l, r):
+        self.arm.and_(dst, l, r)
         
-    def select_else(self, dst, r):
+    def select_else(self, dst, l, r):
         self.arm.not_(dst, dst)
-        self.arm.and_(dst, dst, r)
+        self.arm.and_(dst, l, r)
 
     def prepend_prologue(self):
         # note that we generate the prologue after the main body
@@ -514,7 +512,6 @@ class ArmIR:
         self.arm.begin_prepend()
 
         top = self.stack.top_size()
-        # bottom = self.stack.bottom_size()
         
         self.arm.sub_imm("sp", "sp", 16)
         self.arm.str_x("lr", "sp", 0)
@@ -526,10 +523,7 @@ class ArmIR:
             self.arm.movz(9, top >> 3)
             self.arm.add_imm(10, "sp", 0)
             self.arm.sub_lsl(10, 10, 9, 3)
-            self.arm.add_imm("sp", 10, 0)
-                                
-        # self.arm.mov("fp", "sp")
-        # self.arm.sub_imm("sp", "sp", bottom)
+            self.arm.add_imm("sp", 10, 0)                                
         
         for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
             self.save_mem(i, i)
@@ -537,9 +531,7 @@ class ArmIR:
         self.arm.end_prepend()
 
     def append_epilogue(self, idx):
-        top = self.stack.top_size()
-        # bottom = self.stack.bottom_size()
-        
+        top = self.stack.top_size()        
         self.load_mem(0, idx)        
         
         if top < 4096:

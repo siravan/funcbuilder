@@ -181,7 +181,7 @@ class Builder:
             t = self.append_unary("root", a)
             return self.append_unary("cube", t)
         else:
-            return self.call("power", a, b)
+            return self.call("pow", a, power)
             
     def sqrt(self, a):
         return self.append_unary("root", a)

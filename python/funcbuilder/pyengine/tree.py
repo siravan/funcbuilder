@@ -11,10 +11,16 @@ class Unary:
         self.arg = arg
 
     def __repr__(self):
-        return f"Unary('{self.op}', {self.arg})"
+        return f"Unary[reg={self.reg}]('{self.op}', {self.arg})"
+        
+    def alloc(self, lefty):
+        self.reg = self.arg.alloc(True)
+        return self.reg
 
-    def compile(self, dst, prog, mem, vt):
-        self.arg.compile(dst, prog, mem, vt)
+    def compile(self, prog, mem, vt):
+        dst = self.arg.compile(prog, mem, vt)
+        
+        assert(dst != 1 and dst < prog.first_shadow + prog.count_shadows)
 
         if self.op == "neg":
             prog.neg(dst)
@@ -32,6 +38,8 @@ class Unary:
             prog.recip(dst)
         else:
             raise ValueError(f"unary op {self.op} not defined")
+            
+        return dst            
 
 
 class Binary:
@@ -41,59 +49,135 @@ class Binary:
         self.right = right
 
     def __repr__(self):
-        return f"Binary('{self.op}', {self.left}, {self.right})"
-
-    def compile(self, dst, prog, mem, vt):
-        sp = mem.push()        
-
-        if sp < prog.count_shadows:
-            self.right.compile(prog.first_shadow + sp, prog, mem, vt)
-        else:
-            self.right.compile(dst, prog, mem, vt)
-            prog.save_mem(dst, self.idx)
-
-        self.left.compile(dst, prog, mem, vt)
-
-        if sp < prog.count_shadows:
-            r = prog.first_shadow + sp
-        else:
-            prog.load_mem(1, self.idx)
-            r = 1
-
-        mem.pop()            
+        return f"Binary[reg={self.reg}]('{self.op}', {self.left}, {self.right})"
         
+    def alloc(self, lefty):
+        """
+            alloc performs the first pass of the Sethi–Ullman algorithm.
+            See https://en.wikipedia.org/wiki/Sethi-Ullman_algorithm.
+            In this pass, each node of the AST received a logical
+            register number from 0 onward. 
+            
+            alloc returns the logical register.
+        """
+        l = self.left.alloc(True)
+        r = self.right.alloc(False)
+        self.reg = l+1 if l == r else max(l, r)
+        return self.reg        
+
+    def compile(self, prog, mem, vt):        
+        """
+            compile performs the second pass of the Sethi–Ullman algorithm.
+            
+            In this pass, physical registers are assigned and the actual 
+            machine code is generated.
+            
+            compile returns the physical register.
+            
+            We use the following conventinos:
+            
+            1. Registers 0 and 1, r(0) and r(1), i.e., (XMM1/XMM2 in AMD 
+                and D0/D1 in aarch64) are scratch registers.
+                
+            2. Registers r(prog.first_shadow) to 
+                r(prog.first_shadow+prog.count_shadows-1) store the 
+                intermediate values.
+                
+            3. Logical registers 0 to prog.count_shadows-1 correspond
+                to the intermediate physical registers.
+                
+            4. Logical registers with index >= prog.count_shadows map to r(0)
+                and are spilled to the stack.
+                
+            5. r(1) also holds intermediate numerical constants for some unary
+                operations.
+        """
+        t = self.idx
+        
+        # last accessible physical register
+        last = prog.first_shadow + prog.count_shadows - 1   
+        
+        # the physical register holding the result of the current operation
+        dst = prog.first_shadow + self.reg if self.reg < prog.count_shadows else 0
+        
+        if self.right.reg == self.left.reg:
+            l = self.left.compile(prog, mem, vt)
+            
+            # we need to spill the result of the left limb if it is in the 
+            # last physical one to open space for the result of the right limb
+            if l == 0 or l == last:
+                prog.save_mem(l, t) 
+                l = 0
+            else:
+                prog.fmov(l+1, l)   # to prevent collision with r
+                l = l + 1
+                
+            r = self.right.compile(prog, mem, vt)
+            
+            if l == 0:
+                prog.load_mem(1, t)
+                l = 1                        
+        elif self.right.reg > self.left.reg:
+            r = self.right.compile(prog, mem, vt)
+            
+            # we don't need to check with last or move to a higher register
+            # because r is either 0 or strictly greater than l
+            if r == 0:
+                prog.save_mem(r, t)
+        
+            l = self.left.compile(prog, mem, vt)
+                
+            if r == 0:
+                prog.load_mem(1, t)
+                r = 1   # 1 not 0 because l can be 0
+        else:   # self.right.reg < self.left.reg:
+            l = self.left.compile(prog, mem, vt)
+            
+            if l == 0:
+                prog.save_mem(l, t) 
+                
+            r = self.right.compile(prog, mem, vt)
+            
+            if l == 0:
+                prog.load_mem(1, t)
+                l = 1                
+        
+        self.emit(dst, l, r, prog, mem, vt)        
+            
+        return dst            
+
+        
+    def emit(self, dst, l, r, prog, mem, vt):
         if self.op == "plus":
-            prog.plus(dst, r)
+            prog.plus(dst, l, r)
         elif self.op == "minus":
-            prog.minus(dst, r)
+            prog.minus(dst, l, r)
         elif self.op == "times":
-            prog.times(dst, r)
+            prog.times(dst, l, r)
         elif self.op == "divide":
-            prog.divide(dst, r)
-        elif self.op == "power":
-            prog.call_binary(dst, r, vt.find("pow"))
+            prog.divide(dst, l, r)
         elif self.op == "gt":
-            prog.gt(dst, r)
+            prog.gt(dst, l, r)
         elif self.op == "geq":
-            prog.geq(dst, r)
+            prog.geq(dst, l, r)
         elif self.op == "lt":
-            prog.lt(dst, r)
+            prog.lt(dst, l, r)
         elif self.op == "leq":
-            prog.leq(dst, r)
+            prog.leq(dst, l, r)
         elif self.op == "eq":
-            prog.eq(dst, r)
+            prog.eq(dst, l, r)
         elif self.op == "neq":
-            prog.neq(dst, r)
+            prog.neq(dst, l, r)
         elif self.op == "and":
-            prog.and_(dst, r)
+            prog.and_(dst, l, r)
         elif self.op == "or":
-            prog.or_(dst, r)
+            prog.or_(dst, l, r)
         elif self.op == "xor":
-            prog.xor(dst, r)        
+            prog.xor(dst, l, r)        
         elif self.op == "select_if":
-            prog.select_if(dst, r)
+            prog.select_if(dst, l, r)
         elif self.op == "select_else":
-            prog.select_else(dst, r)                        
+            prog.select_else(dst, l, r)                        
         else:
             raise ValueError(f"binary op {self.op} not defined")
 
@@ -104,45 +188,83 @@ class Call:
         self.args = args
         
     def __repr__(self):
-        return f"Call({self.fn},...)"
+        return f"Call[reg=?]({self.fn},...)"
         
-    def compile(self, dst, prog, mem, vt):
+    def alloc(self, lefty):
+        pass
+        
+    def compile(self, prog, mem, vt):
         args = self.args
         
         if len(args) == 1:
-            assert(isinstance(args[0], Var) or isinstance(args[0], Const))
-            args[0].compile(0, prog, mem, vt)
-            prog.call_unary(dst, vt.find(self.fn))
+            a = args[0]
+            
+            if isinstance(a, Var):
+                prog.load_mem(0, mem.index(a.name))
+            elif isinstance(a, Const):
+                prog.load_const(0, mem.constant(a.val))   
+            else:
+                raise ValueError("call arguments should be Var or Const") 
+            
+            prog.call_unary(0, vt.find(self.fn))
         elif len(self.args) == 2:
-            assert(isinstance(args[0], Var) or isinstance(args[0], Const))
-            assert(isinstance(args[1], Var) or isinstance(args[1], Const))
-            arg[0].compile(0, prog, mem, vt)
-            arg[1].compile(1, prog, mem, vt)
-            prog.call_binary(dst, vt.find(self.fn))
+            a = args[0]
+            b = args[1]
+            
+            if isinstance(a, Var):
+                prog.load_mem(0, mem.index(a.name))
+            elif isinstance(a, Const):
+                prog.load_const(0, mem.constant(a.val))    
+            else:
+                raise ValueError("call arguments should be Var or Const") 
+                
+            if isinstance(b, Var):
+                prog.load_mem(1, mem.index(b.name))
+            elif isinstance(b, Const):
+                prog.load_const(1, mem.constant(b.val))        
+            else:
+                raise ValueError("call arguments should be Var or Const")     
+            
+            prog.call_binary(0, vt.find(self.fn))            
         else:
             raise ValueError("multi-variable call is not implemented yet")            
+            
+        return 0
             
 
 class Const:
     def __init__(self, val):
-        self.val = float(val)        
+        self.val = float(val)                
 
     def __repr__(self):
-        return f"Const({self.val})"
+        return f"Const[reg={self.reg}]({self.val})"
+        
+    def alloc(self, lefty):
+        self.reg = 0 if lefty else 1
+        return self.reg        
 
-    def compile(self, dst, prog, mem, vt):
+    def compile(self, prog, mem, vt):
+        dst = prog.first_shadow + self.reg
         prog.load_const(dst, mem.constant(self.val))
+        return dst
 
 
 class Var:
     def __init__(self, name):
         self.name = str(name)
+        self.reg = 0
 
     def __repr__(self):
-        return f"Var('{self.name}')"
+        return f"Var[reg={self.reg}]('{self.name}')"
+        
+    def alloc(self, lefty):
+        self.reg = 0 if lefty else 1
+        return self.reg
 
-    def compile(self, dst, prog, mem, vt):
+    def compile(self, prog, mem, vt):
+        dst = prog.first_shadow + self.reg
         prog.load_mem(dst, mem.index(self.name))
+        return dst
 
 
 class Label:
@@ -150,10 +272,14 @@ class Label:
         self.label = label        
 
     def __repr__(self):
-        return f"Label('{self.label}')"
+        return f"Label[reg=?]('{self.label}')"
+        
+    def alloc(self, lefty):
+        pass
 
-    def compile(self, dst, prog, mem, vt):
+    def compile(self, prog, mem, vt):
         prog.set_label(self.label)
+        return 0
         
         
 class Branch:
@@ -163,14 +289,18 @@ class Branch:
         self.false_label = false_label
 
     def __repr__(self):
-        return f"Branch({self.true_label}))"
+        return f"Branch[reg=?]({self.true_label}))"
+        
+    def alloc(self, lefty):
+        pass
 
-    def compile(self, dst, prog, mem, vt):
+    def compile(self, prog, mem, vt):
         if self.cond == True:
             prog.branch(self.true_label)
             return
 
-        self.cond.compile(dst, prog, mem, vt)                    
+        dst = self.cond.compile(prog, mem, vt)
+        
         if self.false_label is None:
             prog.branch_if(dst, self.true_label)
         else:
@@ -184,9 +314,12 @@ class Eq:
 
     def __repr__(self):
         return f"{self.lhs} = {self.rhs}"
+        
+    def alloc(self, lefty):
+        self.rhs.alloc(True)
 
-    def compile(self, dst, prog, mem, vt):
-        self.rhs.compile(dst, prog, mem, vt)
+    def compile(self, prog, mem, vt):
+        dst = self.rhs.compile(prog, mem, vt)
         prog.save_mem(dst, mem.index(self.lhs.name))
 
 
@@ -203,9 +336,10 @@ class Model:
             eqs: {self.eqs})
         )"""
 
-    def compile(self, idx, prog, mem, vt):
+    def compile(self, idx, prog, mem, vt):   
         for eq in self.eqs:
-            eq.compile(0, prog, mem, vt)
+            eq.alloc(False)
+            eq.compile(prog, mem, vt)
 
         prog.append_epilogue(idx)
         prog.append_text_section(mem.consts, vt.vt())
