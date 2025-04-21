@@ -12,13 +12,13 @@ def binom(B, n, k):
         r3 = B.fadd(r1, r2)
         return r3
         
-n = 10
-k = 7        
+n = 15
+k = 7      
         
 r = binom(B, n, k)
 f = B.compile(r)
 
-# print(f.compiler.dumps())
+print(f.compiler.dumps())
 
 print(f'f({n}, {k}) =\t', f())
 print(f'binom({n}, {k}) =\t', math.comb(n, k))

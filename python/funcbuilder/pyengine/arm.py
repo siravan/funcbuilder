@@ -72,6 +72,11 @@ class Arm(assembler.Assembler):
         return self
 
     # single register load/store instructions
+    def movz(self, rd, imm16):
+        assert(imm16 < 65536)
+        imm16 = (imm16 << 5) & 0x001fffe0
+        self.append_word(0xD2800000 | self.rd(rd) | imm16)
+
     def ldr_d(self, rd, rn, ofs):
         # ldr d(rd), [x(rn), ofs]
         self.append_word(0xFD400000 | self.rd(rd) | self.rn(rn) | self.ofs(ofs))
@@ -85,17 +90,16 @@ class Arm(assembler.Assembler):
     def ldr_d_label(self, rd, label):
         self.jump(label, code=(0x5C000000 | self.rd(rd)))
         
-    def ldr_d_reg(self, rd, rn, rm):
-        # lsl 0
-        self.append_word(0xFC606800 | self.rd(rd) | self.rn(rn) | self.rm(rm)
+    def ldr_d_reg_lsl3(self, rd, rn, rm):
+        self.append_word(0xFC607800 | self.rd(rd) | self.rn(rn) | self.rm(rm))
         
     def ldr_x_label(self, rd, label):
         self.jump(label, code=(0x58000000 | self.rd(rd)))
         
     def ldr_x_imm(self, rd, imm19):
-        assert abs(x) < 262144
+        assert abs(imm19) < 262144
         imm19 = (imm19 << 5) & 0x00ffffe0
-        self.append_word(0x58000000 | self.rd(rd) | imm19        
+        self.append_word(0x58000000 | self.rd(rd) | imm19)
 
     def str_d(self, rd, rn, ofs):
         # str d(rd), [x(rn), ofs]
@@ -107,9 +111,8 @@ class Arm(assembler.Assembler):
         self.append_word(0xF9000000 | self.rd(rd) | self.rn(rn) | self.ofs(ofs))
         return self
         
-    def str_d_reg(self, rd, rn, rm):
-        # lsl 0
-        self.append_word(0xFC206800 | self.rd(rd) | self.rn(rn) | self.rm(rm)            
+    def str_d_reg_lsl3(self, rd, rn, rm):
+        self.append_word(0xFC207800 | self.rd(rd) | self.rn(rn) | self.rm(rm))            
 
     # paired-registers load/store instructions
     def ldp_d(self, rd, rd2, rn, of7):
@@ -342,8 +345,8 @@ class Arm(assembler.Assembler):
 class ArmStack:
     def __init__(self, mem):
         self.mem = mem
-        self.first_shadow = 3
-        self.count_shadows = 5
+        self.first_shadow = 2
+        self.count_shadows = 6
         self.count_simd_args = 8
         
     def offset(self, idx):
@@ -382,24 +385,21 @@ class ArmIR:
 
     def load_mem(self, dst, idx):    
         offset = self.stack.offset(idx)
+        print(offset >> 3)
         if offset < 32768:
             self.arm.ldr_d(dst, "sp", offset)
-        elif offset < 262144:
-            self.arm.ldr_x_imm(9, offset)
-            self.arm.ldr_d_reg(dst, "sp", 9)
         else:
-            raise ValueError("stack frame should be less than 262144 bytes")            
+            self.arm.movz(9, offset >> 3)
+            self.arm.ldr_d_reg_lsl3(dst, "sp", 9)            
 
     def save_mem(self, src, idx):
         offset = self.stack.offset(idx)
         if offset < 32768:
             self.arm.str_d(src, "sp", offset)
-        elif offset < 262144:
-            self.arm.ldr_x_imm(9, offset)
-            self.arm.str_d_reg(dst, "sp", 9)
         else:
-            raise ValueError("stack frame should be less than 262144 bytes")                        
-
+            self.arm.movz(9, offset >> 3)
+            self.arm.str_d_reg_lsl3(src, "sp", 9)
+        
     def load_const(self, dst, idx):
         self.arm.ldr_d_label(dst, 2*idx+1) 
 
@@ -519,13 +519,14 @@ class ArmIR:
         self.arm.sub_imm("sp", "sp", 16)
         self.arm.str_x("lr", "sp", 0)
         
-        if top < 32768:
+        if top < 4096:
             self.arm.sub_imm("sp", "sp", top)
-        elif offset < 262144:
-            self.arm.ldr_x_imm(9, top)
-            self.arm.sub("sp", "sp", 9)
         else:
-            raise ValueError("stack frame should be less than 262144 bytes")
+            print(top)
+            self.arm.movz(9, top >> 3)
+            self.arm.add_imm(10, "sp", 0)
+            self.arm.sub_lsl(10, 10, 9, 3)
+            self.arm.add_imm("sp", 10, 0)
                                 
         # self.arm.mov("fp", "sp")
         # self.arm.sub_imm("sp", "sp", bottom)
@@ -537,17 +538,18 @@ class ArmIR:
 
     def append_epilogue(self, idx):
         top = self.stack.top_size()
-        bottom = self.stack.bottom_size()
+        # bottom = self.stack.bottom_size()
         
         self.load_mem(0, idx)        
         
-        if top < 32768:
+        if top < 4096:
             self.arm.add_imm("sp", "sp", top)
-        elif offset < 262144:
-            self.arm.ldr_x_imm(9, top)
-            self.arm.add("sp", "sp", 9)
         else:
-            raise ValueError("stack frame should be less than 262144 bytes")        
+            print(top)
+            self.arm.movz(9, top >> 3)
+            self.arm.add_imm(10, "sp", 0)
+            self.arm.add_lsl(10, 10, 9, 3)
+            self.arm.add_imm("sp", 10, 0)
         
         self.arm.ldr_x("lr", "sp", 0)
         self.arm.add_imm("sp", "sp", 16)

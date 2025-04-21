@@ -57,11 +57,11 @@ class Binary:
         if sp < prog.count_shadows:
             r = prog.first_shadow + sp
         else:
-            prog.load_mem(0, self.idx)
-            r = 0
-            
-        mem.pop()            
+            prog.load_mem(1, self.idx)
+            r = 1
 
+        mem.pop()            
+        
         if self.op == "plus":
             prog.plus(dst, r)
         elif self.op == "minus":
