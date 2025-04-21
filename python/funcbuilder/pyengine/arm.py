@@ -85,8 +85,17 @@ class Arm(assembler.Assembler):
     def ldr_d_label(self, rd, label):
         self.jump(label, code=(0x5C000000 | self.rd(rd)))
         
+    def ldr_d_reg(self, rd, rn, rm):
+        # lsl 0
+        self.append_word(0xFC606800 | self.rd(rd) | self.rn(rn) | self.rm(rm)
+        
     def ldr_x_label(self, rd, label):
-        self.jump(label, code=(0x58000000 | self.rd(rd)))        
+        self.jump(label, code=(0x58000000 | self.rd(rd)))
+        
+    def ldr_x_imm(self, rd, imm19):
+        assert abs(x) < 262144
+        imm19 = (imm19 << 5) & 0x00ffffe0
+        self.append_word(0x58000000 | self.rd(rd) | imm19        
 
     def str_d(self, rd, rn, ofs):
         # str d(rd), [x(rn), ofs]
@@ -97,6 +106,10 @@ class Arm(assembler.Assembler):
         # ldr x(rd), [x(rn), ofs]
         self.append_word(0xF9000000 | self.rd(rd) | self.rn(rn) | self.ofs(ofs))
         return self
+        
+    def str_d_reg(self, rd, rn, rm):
+        # lsl 0
+        self.append_word(0xFC206800 | self.rd(rd) | self.rn(rn) | self.rm(rm)            
 
     # paired-registers load/store instructions
     def ldp_d(self, rd, rd2, rn, of7):
@@ -367,13 +380,25 @@ class ArmIR:
     def buf(self):
         return self.arm.buf
 
-    def load_mem(self, dst, idx):
+    def load_mem(self, dst, idx):    
         offset = self.stack.offset(idx)
-        self.arm.ldr_d(dst, "sp", offset)
+        if offset < 32768:
+            self.arm.ldr_d(dst, "sp", offset)
+        elif offset < 262144:
+            self.arm.ldr_x_imm(9, offset)
+            self.arm.ldr_d_reg(dst, "sp", 9)
+        else:
+            raise ValueError("stack frame should be less than 262144 bytes")            
 
     def save_mem(self, src, idx):
         offset = self.stack.offset(idx)
-        self.arm.str_d(src, "sp", offset)
+        if offset < 32768:
+            self.arm.str_d(src, "sp", offset)
+        elif offset < 262144:
+            self.arm.ldr_x_imm(9, offset)
+            self.arm.str_d_reg(dst, "sp", 9)
+        else:
+            raise ValueError("stack frame should be less than 262144 bytes")                        
 
     def load_const(self, dst, idx):
         self.arm.ldr_d_label(dst, 2*idx+1) 
@@ -477,11 +502,9 @@ class ArmIR:
             self.arm.fmov(dst, cond)            
             
     def select_if(self, dst, r):
-        #self.arm.bsl(dst, r, "zr")
         self.arm.and_(dst, dst, r)
         
-    def select_else(self, dst, r):        
-        #self.arm.bsl(dst, "zr", r)
+    def select_else(self, dst, r):
         self.arm.not_(dst, dst)
         self.arm.and_(dst, dst, r)
 
@@ -491,12 +514,20 @@ class ArmIR:
         self.arm.begin_prepend()
 
         top = self.stack.top_size()
-        bottom = self.stack.bottom_size()
+        # bottom = self.stack.bottom_size()
         
         self.arm.sub_imm("sp", "sp", 16)
-        self.arm.stp_x("fp", "lr", "sp", 0)
-        self.arm.sub_imm("sp", "sp", top)
-        self.arm.mov("fp", "sp")
+        self.arm.str_x("lr", "sp", 0)
+        
+        if top < 32768:
+            self.arm.sub_imm("sp", "sp", top)
+        elif offset < 262144:
+            self.arm.ldr_x_imm(9, top)
+            self.arm.sub("sp", "sp", 9)
+        else:
+            raise ValueError("stack frame should be less than 262144 bytes")
+                                
+        # self.arm.mov("fp", "sp")
         # self.arm.sub_imm("sp", "sp", bottom)
         
         for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
@@ -508,9 +539,17 @@ class ArmIR:
         top = self.stack.top_size()
         bottom = self.stack.bottom_size()
         
-        self.load_mem(0, idx)
-        self.arm.add_imm("sp", "sp", top)
-        self.arm.ldp_x("fp", "lr", "sp", 0)
+        self.load_mem(0, idx)        
+        
+        if top < 32768:
+            self.arm.add_imm("sp", "sp", top)
+        elif offset < 262144:
+            self.arm.ldr_x_imm(9, top)
+            self.arm.add("sp", "sp", 9)
+        else:
+            raise ValueError("stack frame should be less than 262144 bytes")        
+        
+        self.arm.ldr_x("lr", "sp", 0)
         self.arm.add_imm("sp", "sp", 16)
         self.arm.ret()
         
