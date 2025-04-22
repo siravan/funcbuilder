@@ -104,7 +104,7 @@ class Binary:
             l = self.left.compile(prog, mem, vt)
             
             # we need to spill the result of the left limb if it is in the 
-            # last physical one to open space for the result of the right limb
+            # last physical reg to open space for the result of the right limb
             if l == 0 or l == last:
                 prog.save_mem(l, t) 
                 l = 0
@@ -338,7 +338,7 @@ class Model:
 
     def compile(self, idx, prog, mem, vt):   
         for eq in self.eqs:
-            eq.alloc(False)
+            eq.alloc(True)
             eq.compile(prog, mem, vt)
 
         prog.append_epilogue(idx)

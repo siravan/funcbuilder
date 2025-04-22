@@ -383,7 +383,7 @@ class ArmIR:
 
     def load_mem(self, dst, idx):    
         offset = self.stack.offset(idx)
-        print(offset >> 3)
+        
         if offset < 32768:
             self.arm.ldr_d(dst, "sp", offset)
         else:
@@ -392,6 +392,7 @@ class ArmIR:
 
     def save_mem(self, src, idx):
         offset = self.stack.offset(idx)
+
         if offset < 32768:
             self.arm.str_d(src, "sp", offset)
         else:
@@ -503,7 +504,7 @@ class ArmIR:
         self.arm.and_(dst, l, r)
         
     def select_else(self, dst, l, r):
-        self.arm.not_(dst, dst)
+        self.arm.not_(l, l)
         self.arm.and_(dst, l, r)
 
     def prepend_prologue(self):
@@ -519,7 +520,6 @@ class ArmIR:
         if top < 4096:
             self.arm.sub_imm("sp", "sp", top)
         else:
-            print(top)
             self.arm.movz(9, top >> 3)
             self.arm.add_imm(10, "sp", 0)
             self.arm.sub_lsl(10, 10, 9, 3)
@@ -537,7 +537,6 @@ class ArmIR:
         if top < 4096:
             self.arm.add_imm("sp", "sp", top)
         else:
-            print(top)
             self.arm.movz(9, top >> 3)
             self.arm.add_imm(10, "sp", 0)
             self.arm.add_lsl(10, 10, 9, 3)
