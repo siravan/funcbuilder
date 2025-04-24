@@ -25,6 +25,8 @@ def arch():
 
 
 class Memory:
+    COUNT_SPILLS = 16
+
     def __init__(self, model):
         self.consts = [0.0, 1.0, -1.0, -0.0] 
         self.names = []
@@ -34,20 +36,29 @@ class Memory:
 
         for var in model.states:
             self.names.append(var.name)
+            
+        self.first_spill = len(self.names)
+        for i in range(Memory.COUNT_SPILLS):
+            self.names.append(f"#{i}")
 
         self.first_obs = len(self.names)
-        self.count_obs = len(model.obs)
-
-        for var in model.obs:
-            self.names.append(var.name)
-
-        self.stack_ptr = 0
-        self.stack_size = 0
+        self.count_obs = 0
 
     def index(self, name):
         if isinstance(name, tree.Var):
             name = name.name
         return self.names.index(name)
+        
+    def add_index(self, name):
+        if isinstance(name, tree.Var):
+            name = name.name
+            
+        if name in self.names:       
+            return self.names.index(name)
+
+        self.names.append(name)
+        self.count_obs += 1
+        return len(self.names) - 1
 
     def constant(self, val):
         val = float(val)
@@ -56,16 +67,10 @@ class Memory:
         except:
             self.consts.append(val)
             return len(self.consts) - 1
-
-    def push(self):
-        self.stack_ptr += 1
-        self.stack_size = max(self.stack_size, self.stack_ptr)
-        return self.stack_ptr - 1
-
-    def pop(self):
-        assert self.stack_ptr > 0
-        self.stack_ptr -= 1
-        return self.stack_ptr
+            
+    def spill(self, reg):
+        assert(reg < Memory.COUNT_SPILLS)
+        return self.first_spill + reg
 
 
 class VirtualTable:
@@ -229,7 +234,7 @@ class PyCompiler:
         self.mem = Memory(model)
         self.vt = VirtualTable()
         self.prog = self.assembler(ty)(self.mem)
-        idx = self.mem.index(y)
+        idx = self.mem.add_index(y)
         model.compile(idx, self.prog, self.mem, self.vt)
         
         if sig == None:
