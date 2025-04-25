@@ -67,7 +67,8 @@ class Phi:
         self.parent = parent
         self.var = None
         
-    def add_incoming(self, a):        
+    def add_incoming(self, a):
+        self.parent.add_block() # needed based on the mandelbrot example
         a = self.parent.prep(a)
         
         if self.var is None:
@@ -76,6 +77,16 @@ class Phi:
         else:        
             self.parent.block.eqs.append(tree.Eq(self.var, a))
         
+
+class Complex:
+    def __init__(self, a, b=0.0):
+        if isinstance(a, Complex):
+            self.re = a.re
+            self.im = a.im
+        else:
+            self.re = a
+            self.im = b            
+                            
 
 class Builder:
     def __init__(self, *states):
@@ -136,7 +147,7 @@ class Builder:
         if len(a) == 1:
             return self.prep(a[0])
         elif len(a) > 2:
-            t = self.add(*a[1:])
+            t = self.fadd(*a[1:])
             return self.append_binary("plus", a[0], t)
         else:
             return self.append_binary("plus", a[0], a[1])
@@ -148,7 +159,7 @@ class Builder:
         if len(a) == 1:
             return self.prep(a[0])
         elif len(a) > 2:
-            t = self.add(*a[1:])
+            t = self.fmul(*a[1:])
             return self.append_binary("times", a[0], t)
         else:
             return self.append_binary("times", a[0], a[1])
@@ -311,8 +322,54 @@ class Builder:
         self.externals.add(cond)
         self.block.closure = tree.Branch(cond, true_label, false_label)
         self.add_block()
+        
+    def complex(self, a, b):
+        return Complex(a, b)
+        
+    def cadd(self, a, b):
+        r1 = self.fadd(a.re, b.re)
+        r2 = self.fadd(a.im, b.im)
+        
+        return Complex(r1, r2)
+        
+    def csub(self, a, b):
+        r1 = self.fsub(a.re, b.re)
+        r2 = self.fsub(a.im, b.im)
+        
+        return Complex(r1, r2)
+        
+    def cmul(self, a, b):
+        r1 = self.fmul(a.re, b.re)
+        r2 = self.fmul(a.im, b.im)
+        r3 = self.fsub(r1, r2)
+        
+        r4 = self.fmul(a.re, b.im)
+        r5 = self.fmul(a.im, b.re)
+        r6 = self.fadd(r4, r5)
+        
+        return Complex(r3, r6)
+        
+    def cdiv(self, a, b):
+        r1 = self.square(b.re)
+        r2 = self.square(b.im)
+        r3 = self.fadd(r1, r2)
+        
+        r4 = self.fmul(a.re, b.re)
+        r5 = self.fmul(a.im, b.im)
+        r6 = self.fadd(r1, r2)
+        r7 = self.dfiv(r6, r3)
+        
+        r8 = self.fmul(a.im, b.re)
+        r9 = self.fmul(a.re, b.im)        
+        r10 = self.fsub(r8, r9)
+        r11 = self.dfiv(r10, r3)
+        
+        return Complex(r7, r11)        
 
-    def compile(self, y, sig=None):
+    def compile(self, y=None, sig=None):
+        if y is None:
+            y = self.obs[-1]    
+    
         try:            
             if isinstance(y, Phi):
                 y = y.var

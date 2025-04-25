@@ -26,6 +26,10 @@ def arch():
 
 class Memory:
     COUNT_SPILLS = 16
+    ZERO = 0
+    ONE = 1
+    MINUS_ONE = 2
+    MINUS_ZERO = 3
 
     def __init__(self, model):
         self.consts = [0.0, 1.0, -1.0, -0.0] 

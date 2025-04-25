@@ -489,11 +489,11 @@ class AmdIR:
         self.amd.vmovsd_mem_xmm("rbp", offset, src)
 
     def neg(self, dst):
-        self.load_const(1, self.mem.constant(-0.0))
+        self.load_const(1, self.mem.MINUS_ZERO)
         self.amd.vxorpd(dst, dst, 1)
 
     def abs(self, dst):
-        self.load_const(1, self.mem.constant(-0.0))
+        self.load_const(1, self.mem.MINUS_ZERO)
         self.amd.vandnpd(dst, 1, dst)
 
     def root(self, dst):
@@ -506,8 +506,8 @@ class AmdIR:
         self.amd.vmulsd(1, dst, dst)
         self.amd.vmulsd(dst, dst, 1)
 
-    def recip(self, dst):
-        self.load_const(1, self.mem.constant(1.0))
+    def recip(self, dst):    
+        self.load_const(1, self.mem.ONE)
         self.amd.vdivsd(dst, 1, dst)
 
     def plus(self, dst, a, b):

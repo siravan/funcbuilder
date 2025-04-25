@@ -198,7 +198,7 @@ class Call:
         self.args = args
 
     def __repr__(self):
-        return f"Call[reg=?]({self.fn},...)"
+        return f"Call[reg=?]({self.fn},...)\n"
 
     def alloc(self, lefty):
         return 0
@@ -283,7 +283,7 @@ class Label:
         self.label = label
 
     def __repr__(self):
-        return f"Label[reg=?]('{self.label}')"
+        return f"Label[reg=?]('{self.label}')\n"
 
     def alloc(self, lefty):
         return 0
@@ -301,7 +301,7 @@ class Branch:
         self.reg = 0
 
     def __repr__(self):
-        return f"Branch[reg=?]({self.true_label}))"
+        return f"Branch[reg=?]({self.true_label}))\n"
 
     def alloc(self, lefty):
         return 0
@@ -325,7 +325,7 @@ class Eq:
         self.rhs = rhs
 
     def __repr__(self):
-        return f"{self.lhs} = {self.rhs}"
+        return f"{self.lhs} = {self.rhs}\n"
 
     def alloc(self, lefty):
         return self.rhs.alloc(True)
@@ -347,7 +347,7 @@ class Model:
             states: {self.states}
             obs: {self.obs}
             eqs: {self.eqs})
-        )"""
+        )\n"""
         
     def alloc(self, lefty):
         for eq in self.eqs:
