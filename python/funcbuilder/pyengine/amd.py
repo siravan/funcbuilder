@@ -3,6 +3,7 @@ import struct
 
 from . import assembler
 
+
 def reg_index(reg):
     if isinstance(reg, int):
         return reg
@@ -146,20 +147,20 @@ class Amd(assembler.Assembler):
         self.append_byte(0x10)
         self.modrm_mem(reg, rm, offset)
         return self
-        
+
     def vmovsd_xmm_label(self, reg, label):
         self.vex_sd(reg, 0, 0)
         self.append_byte(0x10)
         # modr/m byte with MOD=00 and R/M=101 (RIP-relative address)
-        self.append_byte(5 | ((reg & 7) << 3)) 
+        self.append_byte(5 | ((reg & 7) << 3))
         self.jump(label)
-        return self        
+        return self
 
     def vmovsd_mem_xmm(self, rm, offset, reg):
         self.vex_sd(reg, 0, rm)
         self.append_byte(0x11)
         self.modrm_mem(reg, rm, offset)
-        return self        
+        return self
 
     def vbroadcastsd(self, reg, rm, offset):
         self.vex3pd(reg, 0, rm, 2)
@@ -276,12 +277,12 @@ class Amd(assembler.Assembler):
         self.modrm_reg(reg, rm)
         self.append_byte(7)
         return self
-        
+
     def vucomisd(self, reg, rm):
         self.vex_pd(reg, 0, rm)
         self.append_byte(0x2E)
         self.modrm_reg(reg, rm)
-        return self        
+        return self
 
     def vzeroupper(self):
         self.append_byte(0xC5, 0xF8, 0x77)
@@ -299,15 +300,15 @@ class Amd(assembler.Assembler):
         self.append_byte(0x8B)
         self.modrm_mem(reg, rm, offset)
         return self
-        
+
     def mov_reg_label(self, reg, label):
         reg = reg_index(reg)
         self.rex(reg, 0)
         self.append_byte(0x8B)
         # modr/m byte with MOD=00 and R/M=101 (RIP-relative address)
-        self.append_byte(5 | ((reg & 7) << 3)) 
+        self.append_byte(5 | ((reg & 7) << 3))
         self.jump(label)
-        return self        
+        return self
 
     def mov_mem_reg(self, rm, offset, reg):
         self.rex(reg, rm)
@@ -385,30 +386,30 @@ class Amd(assembler.Assembler):
         self.rex(0, rm)
         self.append_byte(0xFF)
         self.modrm_reg(1, rm)
-        
+
     def jmp(self, label):
         self.append_byte(0xE9)
-        self.jump(label)        
+        self.jump(label)
 
     def jnz(self, label):
         self.append_byte(0x0F, 0x85)
         self.jump(label)
-        
+
     def jpe(self, label):
         # jump if parity even is true if vucomisd returns
         # an unordered result
         self.append_byte(0x0F, 0x8A)
-        self.jump(label)        
-        
+        self.jump(label)
+
     def def_quad(self, val):
         """pseudo-instruction dq"""
-        self.append_word(val & 0xffffffff)
-        self.append_word(val >> 32)   
-        
-    def nop(self):             
+        self.append_word(val & 0xFFFFFFFF)
+        self.append_word(val >> 32)
+
+    def nop(self):
         self.append_byte(0x90)
-        
-        
+
+
 class AmdSysVStack:
     def __init__(self, mem):
         self.mem = mem
@@ -416,10 +417,10 @@ class AmdSysVStack:
         self.first_shadow = 2
         self.count_shadows = 14
         self.count_simd_args = 8
-        
+
     def offset(self, idx):
         ns = self.mem.count_states
-        
+
         if idx < ns:
             if idx < 8:
                 return 8 * (-(1 + idx))
@@ -427,62 +428,62 @@ class AmdSysVStack:
                 return 8 * (idx - 6)
         else:
             return 8 * (-(1 + idx - max(0, ns - 8)))
-            
+
     def frame_size(self):
         # cap = self.mem.stack_size + min(self.mem.count_states, 8) + self.mem.count_obs
         cap = min(self.mem.count_states, 8) + self.mem.count_obs
         pad = cap & 1
         return 8 * (cap + pad)
-        
-        
+
+
 class AmdWindowsStack:
     def __init__(self, mem):
         self.mem = mem
         # shadows are XMM/YMM registers that shadow the stack slots
-        self.first_shadow = 2   # XMM2-XMM5
-        self.count_shadows = 4 
+        self.first_shadow = 2  # XMM2-XMM5
+        self.count_shadows = 4
         self.count_simd_args = 4
-        
+
     def offset(self, idx):
         ns = self.mem.count_states
-        
+
         if idx < ns:
             return 8 * (idx + 2)
         else:
             return 8 * (-(1 + idx - ns))
-            
+
     def frame_size(self):
         # cap = self.mem.stack_size + self.mem.count_obs
         cap = self.mem.count_obs
         pad = cap & 1
-        return 8 * (cap + pad)        
-        
+        return 8 * (cap + pad)
+
 
 class AmdIR:
     def __init__(self, mem):
         self.amd = Amd()
         self.mem = mem
-        
+
         if sys.platform == "win32":
             self.stack = AmdWindowsStack(mem)
-        else:        
+        else:
             self.stack = AmdSysVStack(mem)
-            
+
         self.first_shadow = self.stack.first_shadow
-        self.count_shadows = self.stack.count_shadows            
+        self.count_shadows = self.stack.count_shadows
 
     def buf(self):
         return self.amd.buf
-        
+
     def fmov(self, dst, r):
-        self.amd.vmovapd(dst, r)        
+        self.amd.vmovapd(dst, r)
 
     def load_mem(self, dst, idx):
         offset = self.stack.offset(idx)
         self.amd.vmovsd_xmm_mem(dst, "rbp", offset)
-        
+
     def load_const(self, dst, idx):
-        self.amd.vmovsd_xmm_label(dst, 2*idx+1)        
+        self.amd.vmovsd_xmm_label(dst, 2 * idx + 1)
 
     def save_mem(self, src, idx):
         offset = self.stack.offset(idx)
@@ -506,7 +507,7 @@ class AmdIR:
         self.amd.vmulsd(1, dst, dst)
         self.amd.vmulsd(dst, dst, 1)
 
-    def recip(self, dst):    
+    def recip(self, dst):
         self.load_const(1, self.mem.ONE)
         self.amd.vdivsd(dst, 1, dst)
 
@@ -548,21 +549,21 @@ class AmdIR:
 
     def xor(self, dst, a, b):
         self.amd.vxorpd(dst, a, b)
-    
+
     def not_(self, dst):
         self.amd.vxorpd(1, 1, 1)
         self.amd.vcmpeqsd(1, 1, 1)
-        self.amd.vxorpd(dst, dst, 1)        
+        self.amd.vxorpd(dst, dst, 1)
 
     def call_unary(self, dst, idx):
         self.amd.vzeroupper()
-    
+
         # Windows 32-byte home area
         if self.amd.is_win:
             self.amd.sub_rsp(32)
 
         # self.amd.mov_reg_mem("rax", "rbx", 8 * idx)
-        self.amd.mov_reg_label("rax", 2*idx)
+        self.amd.mov_reg_label("rax", 2 * idx)
         self.amd.call("rax")
 
         if dst != 0:
@@ -573,7 +574,7 @@ class AmdIR:
 
     def call_binary(self, dst, r, idx):
         self.amd.vzeroupper()
-        
+
         # Windows 32-byte home area
         if self.amd.is_win:
             self.amd.sub_rsp(32)
@@ -582,7 +583,7 @@ class AmdIR:
             self.amd.vmovapd(1, r)
 
         # self.amd.mov_reg_mem("rax", "rbx", 8 * idx)
-        self.amd.mov_reg_label("rax", 2*idx)
+        self.amd.mov_reg_label("rax", 2 * idx)
         self.amd.call("rax")
 
         if dst != 0:
@@ -593,14 +594,14 @@ class AmdIR:
 
     def set_label(self, label):
         self.amd.set_label(label)
-        
+
     def branch(self, label):
-        self.amd.jmp(label)        
-        
+        self.amd.jmp(label)
+
     def branch_if(self, cond, true_label):
         self.amd.vucomisd(cond, cond)
-        self.amd.jpe(true_label)                
-        
+        self.amd.jpe(true_label)
+
     def branch_if_else(self, cond, true_label, false_label):
         self.amd.vucomisd(cond, cond)
         self.amd.jpe(true_label)
@@ -610,10 +611,10 @@ class AmdIR:
         self.amd.vandpd(true_reg, true_reg, cond)
         self.amd.vandnpd(cond, cond, false_reg)
         self.amd.vorpd(dst, true_reg, cond)
-        
+
     def select_if(self, dst, a, b):
         self.amd.vandpd(dst, a, b)
-        
+
     def select_else(self, dst, a, b):
         self.amd.vandnpd(dst, a, b)
 
@@ -625,10 +626,10 @@ class AmdIR:
         self.amd.push("rbp")
         self.amd.mov("rbp", "rsp")
         self.amd.sub_rsp(self.stack.frame_size())
-        
+
         for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
             self.save_mem(i, i)
-        
+
         self.amd.end_prepend()
 
     def append_epilogue(self, idx):
@@ -637,24 +638,25 @@ class AmdIR:
         self.amd.add_rsp(self.stack.frame_size())
         self.amd.pop("rbp")
         self.amd.ret()
-        
+
     def append_text_section(self, consts, vt):
         # aligns the func table at a multiple of 8
         n = len(self.amd.buf)
         while (n & 7) != 0:
             self.amd.nop()
             n += 1
-            
-        for (i, p) in enumerate(vt):
-            self.amd.set_label(2*i)
+
+        for i, p in enumerate(vt):
+            self.amd.set_label(2 * i)
             self.amd.def_quad(p)
-            
-        for (i, c) in enumerate(consts):
-            self.amd.set_label(2*i+1)
-            x = struct.unpack('<Q', struct.pack('<d', c))[0]
-            self.amd.def_quad(x)         
-            
+
+        for i, c in enumerate(consts):
+            self.amd.set_label(2 * i + 1)
+            x = struct.unpack("<Q", struct.pack("<d", c))[0]
+            self.amd.def_quad(x)
+
         self.amd.apply_jumps()
+
 
 ##########################################################################
 

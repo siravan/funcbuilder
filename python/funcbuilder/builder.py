@@ -4,79 +4,73 @@ from . import pyengine
 
 tree = pyengine.tree
 
+
 class Block:
     def __init__(self, label):
         self.label = label
-        self.eqs = []   # equations
+        self.eqs = []  # equations
         self.hits = {}  # number of times each observable is used in this block
         self.closure = None
-        
+
     def list_merges(self, externals):
-        merges = {}         
+        merges = {}
         for eq in self.eqs:
             v = eq.lhs
             if self.hits.get(v) == 1 and v not in externals:
-                merges[v] = eq.rhs                
+                merges[v] = eq.rhs
         return merges
-        
+
     def arborize(self, externals):
         """Merges expression trees if possible"""
         merges = self.list_merges(externals)
         eqs = []
-        
+
         for eq in self.eqs:
             lhs, rhs = eq.lhs, eq.rhs
-            
+
             if isinstance(rhs, tree.Unary):
-                p = tree.Unary(
-                    rhs.op, 
-                    merges.get(rhs.arg, rhs.arg)
-                )                
+                p = tree.Unary(rhs.op, merges.get(rhs.arg, rhs.arg))
             elif isinstance(rhs, tree.Binary):
                 p = tree.Binary(
                     rhs.op,
                     merges.get(rhs.left, rhs.left),
-                    merges.get(rhs.right, rhs.right)                    
+                    merges.get(rhs.right, rhs.right),
                 )
                 p.idx = rhs.idx
-            elif isinstance(eq.rhs, tree.Var):                
+            elif isinstance(eq.rhs, tree.Var):
                 p = merges.get(rhs, rhs)
             else:
                 p = rhs
-                
+
             if lhs in merges:
                 merges[lhs] = p
             else:
                 eqs.append(tree.Eq(lhs, p))
-                
+
         if self.closure is not None:
-            p = self.closure            
+            p = self.closure
             eqs.append(
-                tree.Branch(
-                    merges.get(p.cond, p.cond), 
-                    p.true_label, 
-                    p.false_label
-                )   
+                tree.Branch(merges.get(p.cond, p.cond), p.true_label, p.false_label)
             )
-                        
-        return eqs       
+
+        return eqs
 
 
 class Phi:
     def __init__(self, parent):
         self.parent = parent
         self.var = None
-        
+
     def add_incoming(self, a):
-        self.parent.add_block() # needed based on the mandelbrot example
+        self.parent.add_block()  # needed based on the mandelbrot example
         a = self.parent.prep(a)
-        
+
         if self.var is None:
             self.var = self.parent.new_var(a)
             self.parent.externals.add(self.var)
-        else:        
+        else:
             self.parent.block.eqs.append(tree.Eq(self.var, a))
-        
+
 
 class Complex:
     def __init__(self, a, b=0.0):
@@ -85,27 +79,27 @@ class Complex:
             self.im = a.im
         else:
             self.re = a
-            self.im = b            
-                            
+            self.im = b
+
 
 class Builder:
     def __init__(self, *states):
         self.states = [tree.Var(x) for x in states]
         self.obs = []  # observables (intermediate variables)
         self.blocks = [Block("@0")]
-        self.block = self.blocks[0]        
+        self.block = self.blocks[0]
         self.externals = set()
 
     def new_var(self, rhs):
         """Creates a new observable"""
         k = len(self.obs)
         v = tree.Var(f"${k}")
-        self.block.hits[v] = 0        
+        self.block.hits[v] = 0
         self.block.eqs.append(tree.Eq(v, rhs))
         rhs.idx = k
         self.obs.append(v)
-        return v      
-        
+        return v
+
     def add_block(self, label=None):
         if label is None:
             label = f"@{len(self.blocks)}"
@@ -116,17 +110,19 @@ class Builder:
         """Called on each observable on the right hand side of an equation"""
         if isinstance(a, numbers.Number):
             return tree.Const(a)
-            
+
         if isinstance(a, Phi):
             if a.var is None:
-                raise ValueError("cannot use an uninitiated Phi. Every Phi should have at least one incoming link.")
-            a = a.var            
-            
+                raise ValueError(
+                    "cannot use an uninitiated Phi. Every Phi should have at least one incoming link."
+                )
+            a = a.var
+
         if a in self.block.hits:
             self.block.hits[a] += 1
         else:
-            self.externals.add(a) 
-            
+            self.externals.add(a)
+
         return a
 
     def append_unary(self, op, a):
@@ -139,9 +135,12 @@ class Builder:
         b = self.prep(b)
         rhs = tree.Binary(op, a, b)
         return self.new_var(rhs)
-        
-    def phi(self):
-        return Phi(self)
+
+    def phi(self, val=None):
+        p = Phi(self)
+        if val is not None:
+            p.add_incoming(val)
+        return p            
 
     def fadd(self, *a):
         if len(a) == 1:
@@ -166,9 +165,9 @@ class Builder:
 
     def fdiv(self, a, b):
         return self.append_binary("divide", a, b)
-        
+
     def fneg(self, a):
-        return self.append_unary("neg", a)            
+        return self.append_unary("neg", a)
 
     def pow(self, a, power):
         if power == 2:
@@ -193,7 +192,7 @@ class Builder:
             return self.append_unary("cube", t)
         else:
             return self.call("pow", a, power)
-            
+
     def sqrt(self, a):
         return self.append_unary("root", a)
 
@@ -204,7 +203,7 @@ class Builder:
         return self.append_unary("cube", a)
 
     def recip(self, a):
-        return self.append_unary("recip", a)                
+        return self.append_unary("recip", a)
 
     def exp(self, a):
         return self.call("exp", a)
@@ -247,7 +246,7 @@ class Builder:
 
     def atanh(self, a):
         return self.call("atanh", a)
-        
+
     def call(self, fn, *args):
         self.add_block()
         args = [self.prep(arg) for arg in args]
@@ -255,7 +254,7 @@ class Builder:
         v = self.new_var(rhs)
         self.add_block()
         return v
-   
+
     def lt(self, a, b):
         return self.append_binary("lt", a, b)
 
@@ -273,7 +272,7 @@ class Builder:
 
     def neq(self, a, b):
         return self.append_binary("neq", a, b)
-        
+
     def fcmp_ordered(op, a, b):
         if op == "<":
             return self.lt(a, b)
@@ -298,85 +297,85 @@ class Builder:
 
     def xor(self, a, b):
         return self.append_binary("xor", a, b)
-        
+
     def not_(self, a, b):
         return self.append_binary("not", a, b)
 
-    def select(self, cond, a, b):        
+    def select(self, cond, a, b):
         a = self.append_binary("select_if", cond, a)
-        b = self.append_binary("select_else", cond, b)        
+        b = self.append_binary("select_else", cond, b)
         return self.or_(a, b)
-                
+
     def set_label(self, label):
         if len(self.block.eqs) == 0:
             self.block.label = label
         else:
             self.add_block(label)
-        
+
     def branch(self, label):
         self.block.closure = tree.Branch(True, label)
         self.add_block()
-        
+
     def cbranch(self, cond, true_label, false_label=None):
         cond = self.prep(cond)
         self.externals.add(cond)
         self.block.closure = tree.Branch(cond, true_label, false_label)
         self.add_block()
-        
+
     def complex(self, a, b):
         return Complex(a, b)
-        
+
     def cadd(self, a, b):
         r1 = self.fadd(a.re, b.re)
         r2 = self.fadd(a.im, b.im)
-        
+
         return Complex(r1, r2)
-        
+
     def csub(self, a, b):
         r1 = self.fsub(a.re, b.re)
         r2 = self.fsub(a.im, b.im)
-        
+
         return Complex(r1, r2)
-        
+
     def cmul(self, a, b):
         r1 = self.fmul(a.re, b.re)
         r2 = self.fmul(a.im, b.im)
         r3 = self.fsub(r1, r2)
-        
+
         r4 = self.fmul(a.re, b.im)
         r5 = self.fmul(a.im, b.re)
         r6 = self.fadd(r4, r5)
-        
+
         return Complex(r3, r6)
-        
+
     def cdiv(self, a, b):
         r1 = self.square(b.re)
         r2 = self.square(b.im)
         r3 = self.fadd(r1, r2)
-        
+
         r4 = self.fmul(a.re, b.re)
         r5 = self.fmul(a.im, b.im)
         r6 = self.fadd(r1, r2)
         r7 = self.dfiv(r6, r3)
-        
+
         r8 = self.fmul(a.im, b.re)
-        r9 = self.fmul(a.re, b.im)        
+        r9 = self.fmul(a.re, b.im)
         r10 = self.fsub(r8, r9)
         r11 = self.dfiv(r10, r3)
-        
-        return Complex(r7, r11)        
+
+        return Complex(r7, r11)
 
     def compile(self, y=None, sig=None):
         if y is None:
-            y = self.obs[-1]    
-    
-        try:            
+            y = self.obs[-1]
+
+        try:
             if isinstance(y, Phi):
                 y = y.var
-                
+
             eqs = self.coalesce(y)
 
-            model = tree.Model(                
+            model = tree.Model(
                 self.states,  # states
                 self.obs,  # obs
                 eqs,  # eqs
@@ -384,9 +383,9 @@ class Builder:
 
             compiler = pyengine.PyCompiler(model, y, ty="native", sig=sig)
             func = compiler.func
-            # to prevent compiler to deallocate before func, 
+            # to prevent compiler to deallocate before func,
             # since compiler holds the actual code, func is just a wrapper
-            func.compiler = compiler    
+            func.compiler = compiler
             return func
         except:
             raise ValueError(f"return variable {y} not found")
@@ -394,13 +393,9 @@ class Builder:
     def coalesce(self, y):
         eqs = []
         externals = self.externals | {y}
-        
+
         for b in self.blocks:
-            eqs.append(tree.Label(b.label))            
-            eqs.extend(b.arborize(externals))            
-                
-        return eqs                
+            eqs.append(tree.Label(b.label))
+            eqs.extend(b.arborize(externals))
 
-
-
-
+        return eqs

@@ -5,7 +5,7 @@ from scipy.integrate import quad
 
 from funcbuilder import FuncBuilder
 
-B, [x] = FuncBuilder('x')
+B, [x] = FuncBuilder("x")
 
 # Ahmed's Integral (Inside Interesting Integrals, 6.2)
 # f(x) = atan(sqrt(2 + x**2)) / ((1 + x**2) * sqrt(2 + x**2))
@@ -22,5 +22,5 @@ f = B.compile(r7, sig=[ctypes.c_double, ctypes.c_int, ctypes.c_double])
 
 sol = quad(f, 0.0, 1.0)
 
-print('quad =\t\t', sol[0])
-print('analytic = \t', 5 * pi**2 / 96)
+print("quad =\t\t", sol[0])
+print("analytic = \t", 5 * pi**2 / 96)

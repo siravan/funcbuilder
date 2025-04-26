@@ -1,6 +1,6 @@
 from funcbuilder import FuncBuilder
 
-B, [x, y] = FuncBuilder('x', 'y')
+B, [x, y] = FuncBuilder("x", "y")
 
 r1 = B.fadd(x, y)
 r2 = B.fmul(x, y)
@@ -10,6 +10,6 @@ r5 = B.fadd(r4, 1.0)
 
 f = B.compile(r5)
 
-print(f.compiler.dumps())
+# print(f.compiler.dumps())
 
 print(f(2.0, 3.0))

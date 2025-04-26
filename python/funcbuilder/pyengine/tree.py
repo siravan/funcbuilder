@@ -2,6 +2,7 @@ import sys
 import numbers
 from sympy import *
 
+
 class Unary:
     def __init__(self, op, arg):
         self.op = op
@@ -39,9 +40,9 @@ class Unary:
                 if dst != 0:
                     prog.fmov(0, dst)
                 prog.call_unary(0, vt.find(self.op))
-                return 0  
+                return 0
             except:
-                raise ValueError(f"Unary operator {self.op} not found")                
+                raise ValueError(f"Unary operator {self.op} not found")
 
         return dst
 
@@ -185,12 +186,12 @@ class Binary:
                 if l != 0:
                     prog.fmov(0, l)
                 prog.call_binary(0, r, vt.find(self.op))
-                return 0  
+                return 0
             except:
-                raise ValueError(f"Binary operator {self.op} not found")                
-            
+                raise ValueError(f"Binary operator {self.op} not found")
+
         return dst
-        
+
 
 class Call:
     def __init__(self, fn, args):
@@ -348,7 +349,7 @@ class Model:
             obs: {self.obs}
             eqs: {self.eqs})
         )\n"""
-        
+
     def alloc(self, lefty):
         for eq in self.eqs:
             self.reg = max(self.reg, eq.alloc(True))
@@ -356,7 +357,7 @@ class Model:
 
     def compile(self, idx, prog, mem, vt):
         self.alloc(True)
-        
+
         for eq in self.eqs:
             eq.compile(prog, mem, vt)
 

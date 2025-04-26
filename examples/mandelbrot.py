@@ -5,46 +5,40 @@ import matplotlib.pyplot as plt
 
 from funcbuilder import FuncBuilder
 
-B, [a, b] = FuncBuilder('a', 'b')
+B, [a, b] = FuncBuilder("a", "b")
 
-x = B.phi()
-y = B.phi()
-n = B.phi()
+re = B.phi(0.0)
+im = B.phi(0.0)
+n = B.phi(50)
 
-x.add_incoming(0.0)
-y.add_incoming(0.0)
-n.add_incoming(50)
+c = B.complex(a, b)
+x = B.complex(re, im)
 
-B.set_label('loop')
+B.set_label("loop")
 
-x2 = B.square(x)
-y2 = B.square(y)
+x2 = B.cmul(x, x)
 
-c1 = B.gt(x2, 4.0)
-B.cbranch(c1, 'done')
+c1 = B.gt(re, 4.0)
+B.cbranch(c1, "done")
 
-c2 = B.gt(y2, 4.0)
-B.cbranch(c2, 'done')
+c2 = B.gt(im, 4.0)
+B.cbranch(c2, "done")
 
-r1 = B.fsub(x2, y2)
-r2 = B.fadd(r1, a)
+r1 = B.cadd(x2, c)
 
-xy = B.fmul(x, y, 2.0)
-r3 = B.fadd(xy, b)
+re.add_incoming(r1.re)
+im.add_incoming(r1.im)
 
-x.add_incoming(r2)
-y.add_incoming(r3)
+r2 = B.fsub(n, 1)
+n.add_incoming(r2)
+r3 = B.gt(r2, 0)
 
-r4 = B.fsub(n, 1)
-n.add_incoming(r4)
-r5 = B.gt(r4, 0)
+B.cbranch(r3, "loop")
 
-B.cbranch(r5, 'loop')
+B.set_label("done")
 
-B.set_label('done')
-
-r6 = B.fsub(50, n)
-f = B.compile(r6)
+r4 = B.fsub(50, n)
+f = B.compile(r4)
 
 A, B = np.meshgrid(np.arange(-2, 1, 0.002), np.arange(-1.5, 1.5, 0.002))
 H = np.zeros_like(A)

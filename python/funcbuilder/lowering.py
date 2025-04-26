@@ -39,13 +39,13 @@ def lower_tree(B, y):
 
 
 def lower_add(B, y):
-    assert y.is_Add    
+    assert y.is_Add
     args = [lower(B, arg) for arg in y.args]
     return B.fadd(*args)
 
 
 def lower_mul(B, y):
-    assert y.is_Mul 
+    assert y.is_Mul
     args = [lower(B, arg) for arg in y.args]
     return B.fmul(*args)
 
@@ -79,10 +79,10 @@ def relational(B, y):
 def boolean(B, y):
     f = y.func
     a = lower(B, y.args[0])
-    
+
     if f == Not:
         return B.not_(a)
-    
+
     b = lower(B, y.args[1])
 
     if f == And:
@@ -107,6 +107,3 @@ def piecewise(y):
         x2 = piecewise(*y.args[1:])
 
     return B.select(lower(B, cond), lower(B, x1), lower(B, x2))
-
-
-

@@ -32,7 +32,7 @@ class Memory:
     MINUS_ZERO = 3
 
     def __init__(self, model):
-        self.consts = [0.0, 1.0, -1.0, -0.0] 
+        self.consts = [0.0, 1.0, -1.0, -0.0]
         self.names = []
 
         self.first_state = len(self.names)
@@ -40,7 +40,7 @@ class Memory:
 
         for var in model.states:
             self.names.append(var.name)
-            
+
         self.first_spill = len(self.names)
         for i in range(Memory.COUNT_SPILLS):
             self.names.append(f"#{i}")
@@ -52,12 +52,12 @@ class Memory:
         if isinstance(name, tree.Var):
             name = name.name
         return self.names.index(name)
-        
+
     def add_index(self, name):
         if isinstance(name, tree.Var):
             name = name.name
-            
-        if name in self.names:       
+
+        if name in self.names:
             return self.names.index(name)
 
         self.names.append(name)
@@ -71,9 +71,9 @@ class Memory:
         except:
             self.consts.append(val)
             return len(self.consts) - 1
-            
+
     def spill(self, reg):
-        assert(reg < Memory.COUNT_SPILLS)
+        assert reg < Memory.COUNT_SPILLS
         return self.first_spill + reg
 
 
@@ -240,15 +240,15 @@ class PyCompiler:
         self.prog = self.assembler(ty)(self.mem)
         idx = self.mem.add_index(y)
         model.compile(idx, self.prog, self.mem, self.vt)
-        
+
         if sig == None:
-            sig = [ctypes.c_double for _ in range(self.mem.count_states+1)]
-            
+            sig = [ctypes.c_double for _ in range(self.mem.count_states + 1)]
+
         fac = ctypes.CFUNCTYPE(*sig)
 
         self.code = Code(self.prog.buf())
         self.func = fac(self.code.addr)
-        
+
         self.populate()
 
     def __del__(self):
@@ -287,13 +287,10 @@ class PyCompiler:
         first_obs = self.mem.first_obs
         self.count_states = self.mem.count_states
         self.count_obs = self.mem.count_obs
-        
+
     def dumps(self):
         return self.prog.buf().hex()
 
     def dump(self, name=None):
         with open(name, "wb") as fd:
             fd.write(prog.buf)
-
-
-

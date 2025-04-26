@@ -1,6 +1,6 @@
 from funcbuilder import FuncBuilder
 
-B, [x, y] = FuncBuilder('x', 'y')
+B, [x, y] = FuncBuilder("x", "y")
 a = B.fadd(x, y)
 f = B.compile(a)
 

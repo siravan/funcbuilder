@@ -2,6 +2,7 @@ import struct
 
 from . import assembler
 
+
 def reg_index(x):
     if x == "sp" or x == "zr":
         return 31
@@ -13,6 +14,7 @@ def reg_index(x):
         x = int(x)
         assert x >= 0 and x < 32
         return x
+
 
 class Arm(assembler.Assembler):
     def __init__(self):
@@ -33,10 +35,10 @@ class Arm(assembler.Assembler):
 
     def rd(self, x):
         return reg_index(x)
-        
+
     def rn(self, x):
         return reg_index(x) << 5
-      
+
     def rd2(self, x):
         return reg_index(x) << 10
 
@@ -73,8 +75,8 @@ class Arm(assembler.Assembler):
 
     # single register load/store instructions
     def movz(self, rd, imm16):
-        assert(imm16 < 65536)
-        imm16 = (imm16 << 5) & 0x001fffe0
+        assert imm16 < 65536
+        imm16 = (imm16 << 5) & 0x001FFFE0
         self.append_word(0xD2800000 | self.rd(rd) | imm16)
 
     def ldr_d(self, rd, rn, ofs):
@@ -86,19 +88,19 @@ class Arm(assembler.Assembler):
         # ldr x(rd), [x(rn), ofs]
         self.append_word(0xF9400000 | self.rd(rd) | self.rn(rn) | self.ofs(ofs))
         return self
-        
+
     def ldr_d_label(self, rd, label):
         self.jump(label, code=(0x5C000000 | self.rd(rd)))
-        
+
     def ldr_d_reg_lsl3(self, rd, rn, rm):
         self.append_word(0xFC607800 | self.rd(rd) | self.rn(rn) | self.rm(rm))
-        
+
     def ldr_x_label(self, rd, label):
         self.jump(label, code=(0x58000000 | self.rd(rd)))
-        
+
     def ldr_x_imm(self, rd, imm19):
         assert abs(imm19) < 262144
-        imm19 = (imm19 << 5) & 0x00ffffe0
+        imm19 = (imm19 << 5) & 0x00FFFFE0
         self.append_word(0x58000000 | self.rd(rd) | imm19)
 
     def str_d(self, rd, rn, ofs):
@@ -110,9 +112,9 @@ class Arm(assembler.Assembler):
         # ldr x(rd), [x(rn), ofs]
         self.append_word(0xF9000000 | self.rd(rd) | self.rn(rn) | self.ofs(ofs))
         return self
-        
+
     def str_d_reg_lsl3(self, rd, rn, rm):
-        self.append_word(0xFC207800 | self.rd(rd) | self.rn(rn) | self.rm(rm))            
+        self.append_word(0xFC207800 | self.rd(rd) | self.rn(rn) | self.rm(rm))
 
     # paired-registers load/store instructions
     def ldp_d(self, rd, rd2, rn, of7):
@@ -279,12 +281,12 @@ class Arm(assembler.Assembler):
         # fcmge d(rd), d(rn), d(rm)
         self.append_word(0x7E60E400 | self.rd(rd) | self.rn(rn) | self.rm(rm))
         return self
-        
+
     def fcmp(self, rn, rm):
         # fcmp d(rn), d(rm)
         # updates flags
         self.append_word(0x1E602000 | self.rn(rn) | self.rm(rm))
-        return self        
+        return self
 
     # misc
     def blr(self, rn):
@@ -309,7 +311,7 @@ class Arm(assembler.Assembler):
 
     def b_ge(self, label):
         self.jump(label, code=0x5400000A)
-        
+
     def tst(self, rn, rm):
         # tst x(rn), x(rm)
         # equivalent to ands wzr, x(rn), x(rm)
@@ -332,14 +334,14 @@ class Arm(assembler.Assembler):
         else:
             raise ValueError(f"constant {val} not defined")
         return self
-        
+
     def def_quad(self, val):
         """pseudo-instruction dcq"""
-        self.append_word(val & 0xffffffff)
-        self.append_word(val >> 32)   
-        
-    def nop(self):             
-        self.append_word(0xd503201f)        
+        self.append_word(val & 0xFFFFFFFF)
+        self.append_word(val >> 32)
+
+    def nop(self):
+        self.append_word(0xD503201F)
 
 
 class ArmStack:
@@ -348,47 +350,47 @@ class ArmStack:
         self.first_shadow = 2
         self.count_shadows = 6
         self.count_simd_args = 8
-        
+
     def offset(self, idx):
         ns = self.mem.count_states
         nr = self.count_simd_args
-        
+
         if idx < ns:
             if idx < nr:
                 return 8 * idx
             else:
-                return 8 * (2 + idx - nr) + self.top_size() # 2 for fp and lr storage
+                return 8 * (2 + idx - nr) + self.top_size()  # 2 for fp and lr storage
         else:
-            return 8 * (idx - max(0, ns - nr))            
-        
+            return 8 * (idx - max(0, ns - nr))
+
     def top_size(self):
         cap = min(self.mem.count_states, self.count_simd_args) + self.mem.count_obs
         pad = cap & 1
-        return 8 * (cap + pad)             
+        return 8 * (cap + pad)
 
 
 class ArmIR:
     def __init__(self, mem):
         self.arm = Arm()
-        self.mem = mem        
+        self.mem = mem
         self.stack = ArmStack(mem)
         self.first_shadow = self.stack.first_shadow
-        self.count_shadows = self.stack.count_shadows            
+        self.count_shadows = self.stack.count_shadows
 
     def buf(self):
         return self.arm.buf
-        
-    def fmov(self, dst, r):
-        self.arm.fmov(dst, r)        
 
-    def load_mem(self, dst, idx):    
+    def fmov(self, dst, r):
+        self.arm.fmov(dst, r)
+
+    def load_mem(self, dst, idx):
         offset = self.stack.offset(idx)
-        
+
         if offset < 32768:
             self.arm.ldr_d(dst, "sp", offset)
         else:
             self.arm.movz(9, offset >> 3)
-            self.arm.ldr_d_reg_lsl3(dst, "sp", 9)            
+            self.arm.ldr_d_reg_lsl3(dst, "sp", 9)
 
     def save_mem(self, src, idx):
         offset = self.stack.offset(idx)
@@ -398,9 +400,9 @@ class ArmIR:
         else:
             self.arm.movz(9, offset >> 3)
             self.arm.str_d_reg_lsl3(src, "sp", 9)
-        
+
     def load_const(self, dst, idx):
-        self.arm.ldr_d_label(dst, 2*idx+1) 
+        self.arm.ldr_d_label(dst, 2 * idx + 1)
 
     def neg(self, dst):
         self.arm.fneg(dst, dst)
@@ -461,12 +463,12 @@ class ArmIR:
 
     def xor(self, dst, l, r):
         self.arm.eor(dst, l, r)
-        
+
     def not_(self, dst):
         self.arm.not_(dst, dst)
 
     def call_unary(self, dst, idx):
-        self.arm.ldr_x_label(0, 2*idx)
+        self.arm.ldr_x_label(0, 2 * idx)
         self.arm.blr(0)
         if dst != 0:
             self.arm.fmov(dst, 0)
@@ -474,35 +476,35 @@ class ArmIR:
     def call_binary(self, dst, r, idx):
         if r != 1:
             self.arm.fmov(1, r)
-        self.arm.ldr_x_label(0, 2*idx)
+        self.arm.ldr_x_label(0, 2 * idx)
         self.arm.blr(0)
         if dst != 0:
             self.arm.fmov(dst, 0)
-            
+
     def set_label(self, label):
-        self.arm.set_label(label)            
-            
+        self.arm.set_label(label)
+
     def branch(self, label):
         self.tst("zr", "zr")
-        self.arm.b_eq(label)        
-        
+        self.arm.b_eq(label)
+
     def branch_if(self, cond, true_label):
         self.arm.fcmp(cond, cond)
-        self.arm.b_ne(true_label)                
-        
+        self.arm.b_ne(true_label)
+
     def branch_if_else(self, cond, true_label, false_label):
         self.arm.fcmp(cond, cond)
         self.arm.b_ne(true_label)
-        self.arm.b_eq(false_label)            
+        self.arm.b_eq(false_label)
 
     def select(self, dst, cond, true_reg, false_reg):
         self.arm.bsl(cond, true_reg, false_reg)
         if cond != dst:
-            self.arm.fmov(dst, cond)            
-            
+            self.arm.fmov(dst, cond)
+
     def select_if(self, dst, l, r):
         self.arm.and_(dst, l, r)
-        
+
     def select_else(self, dst, l, r):
         self.arm.not_(l, l)
         self.arm.and_(dst, l, r)
@@ -513,27 +515,27 @@ class ArmIR:
         self.arm.begin_prepend()
 
         top = self.stack.top_size()
-        
+
         self.arm.sub_imm("sp", "sp", 16)
         self.arm.str_x("lr", "sp", 0)
-        
+
         if top < 4096:
             self.arm.sub_imm("sp", "sp", top)
         else:
             self.arm.movz(9, top >> 3)
             self.arm.add_imm(10, "sp", 0)
             self.arm.sub_lsl(10, 10, 9, 3)
-            self.arm.add_imm("sp", 10, 0)                                
-        
+            self.arm.add_imm("sp", 10, 0)
+
         for i in range(min(self.mem.count_states, self.stack.count_simd_args)):
             self.save_mem(i, i)
-    
+
         self.arm.end_prepend()
 
     def append_epilogue(self, idx):
-        top = self.stack.top_size()        
-        self.load_mem(0, idx)        
-        
+        top = self.stack.top_size()
+        self.load_mem(0, idx)
+
         if top < 4096:
             self.arm.add_imm("sp", "sp", top)
         else:
@@ -541,22 +543,22 @@ class ArmIR:
             self.arm.add_imm(10, "sp", 0)
             self.arm.add_lsl(10, 10, 9, 3)
             self.arm.add_imm("sp", 10, 0)
-        
+
         self.arm.ldr_x("lr", "sp", 0)
         self.arm.add_imm("sp", "sp", 16)
         self.arm.ret()
-        
-    def append_text_section(self, consts, vt):            
-        for (i, p) in enumerate(vt):
-            self.arm.set_label(2*i)
+
+    def append_text_section(self, consts, vt):
+        for i, p in enumerate(vt):
+            self.arm.set_label(2 * i)
             self.arm.def_quad(p)
-            
-        for (i, c) in enumerate(consts):
-            self.arm.set_label(2*i+1)
-            x = struct.unpack('<Q', struct.pack('<d', c))[0]
-            self.arm.def_quad(x)         
-            
-        self.arm.apply_jumps()        
+
+        for i, c in enumerate(consts):
+            self.arm.set_label(2 * i + 1)
+            x = struct.unpack("<Q", struct.pack("<d", c))[0]
+            self.arm.def_quad(x)
+
+        self.arm.apply_jumps()
 
 
 ################################################################
