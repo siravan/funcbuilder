@@ -72,6 +72,17 @@ class Block:
             )
 
         return eqs
+        
+    def add_eq(self, lhs, rhs):
+        self.hits[lhs] = 0
+        self.eqs.append(tree.Eq(lhs, rhs))
+        
+    def hit(self, v):
+        if v in self.hits:
+            self.hits[v] += 1
+            return True
+        else:
+            return False
 
 
 class Phi:
@@ -81,7 +92,7 @@ class Phi:
         self.name = var.name
 
     def add_incoming(self, a):
-        self.parent.add_block()  # needed based on the mandelbrot example
+        # self.parent.add_block()  # needed based on the mandelbrot example
         a = self.parent.prep(a)
         self.parent.block.eqs.append(tree.Eq(self.var, a))
         
@@ -107,9 +118,8 @@ class Builder:
     def new_var(self, rhs):
         """Creates a new observable"""
         v = tree.Var(f"${self.count_vars}")
-        self.block.hits[v] = 0
-        self.block.eqs.append(tree.Eq(v, rhs))
         self.count_vars += 1
+        self.block.add_eq(v, rhs)
         return v
 
     def add_block(self, label=None):
@@ -124,15 +134,10 @@ class Builder:
             return tree.Const(a)
 
         if isinstance(a, Phi):
-            if a.var is None:
-                raise ValueError(
-                    "cannot use an uninitiated Phi. Every Phi should have at least one incoming link."
-                )
             a = a.var
 
-        if a in self.block.hits:
-            self.block.hits[a] += 1
-        else:
+        # if `a` is not defined in the current block, then it is an external
+        if not self.block.hit(a):
             self.externals.add(a)
 
         return a
