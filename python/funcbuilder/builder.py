@@ -12,17 +12,36 @@ class Block:
         self.hits = {}  # number of times each observable is used in this block
         self.closure = None
 
-    def list_merges(self, externals):
+    def list_merges(self, obs):
+        """
+            merge logic:
+            
+                1. if a variable is created in a block and is used only once,
+                    it can be merged.
+                2. if a variable is created in a block and is used more than once,
+                    it needs stack storage.
+                3. if a variable is created in a block and used in another block,
+                    it needs stack storage.
+                    
+            obs is a set of variables that need stack stotage. It has three sourcs:                
+            
+                1. variables created in a block and used outside (from Builder.externals)
+                2. variables created in a block and used more than once (in this function)
+                3. the argument to compile function
+        """
         merges = {}
         for eq in self.eqs:
             v = eq.lhs
-            if self.hits.get(v) == 1 and v not in externals:
-                merges[v] = eq.rhs
+            if v not in obs:
+                if self.hits[v] == 1: 
+                    merges[v] = eq.rhs
+                elif self.hits[v] > 1:
+                    obs.add(v)                    
         return merges
 
-    def arborize(self, externals):
+    def arborize(self, obs):
         """Merges expression trees if possible"""
-        merges = self.list_merges(externals)
+        merges = self.list_merges(obs)
         eqs = []
 
         for eq in self.eqs:
@@ -64,13 +83,8 @@ class Phi:
     def add_incoming(self, a):
         self.parent.add_block()  # needed based on the mandelbrot example
         a = self.parent.prep(a)
-
-        if self.var is None:
-            self.var = self.parent.new_var(a)
-            self.parent.externals.add(self.var)
-        else:
-            self.parent.block.eqs.append(tree.Eq(self.var, a))
-
+        self.parent.block.eqs.append(tree.Eq(self.var, a))
+        
 
 class Complex:
     def __init__(self, a, b=0.0):
@@ -85,19 +99,17 @@ class Complex:
 class Builder:
     def __init__(self, *states):
         self.states = [tree.Var(x) for x in states]
-        self.obs = []  # observables (intermediate variables)
         self.blocks = [Block("@0")]
         self.block = self.blocks[0]
         self.externals = set()
+        self.count_vars = 0
 
     def new_var(self, rhs):
         """Creates a new observable"""
-        k = len(self.obs)
-        v = tree.Var(f"${k}")
+        v = tree.Var(f"${self.count_vars}")
         self.block.hits[v] = 0
         self.block.eqs.append(tree.Eq(v, rhs))
-        rhs.idx = k
-        self.obs.append(v)
+        self.count_vars += 1
         return v
 
     def add_block(self, label=None):
@@ -319,7 +331,6 @@ class Builder:
 
     def cbranch(self, cond, true_label, false_label=None):
         cond = self.prep(cond)
-        self.externals.add(cond)
         self.block.closure = tree.Branch(cond, true_label, false_label)
         self.add_block()
 
@@ -366,10 +377,7 @@ class Builder:
 
         return Complex(r7, r11)
 
-    def compile(self, y=None, sig=None):
-        if y is None:
-            y = self.obs[-1]
-
+    def compile(self, y, sig=None):
         try:
             if isinstance(y, Phi):
                 y = y.var
@@ -393,10 +401,10 @@ class Builder:
 
     def coalesce(self, y):
         eqs = []
-        externals = self.externals | {y}
+        obs = self.externals | {y}
 
         for b in self.blocks:
             eqs.append(tree.Label(b.label))
-            eqs.extend(b.arborize(externals))
+            eqs.extend(b.arborize(obs))
 
-        return eqs, externals
+        return eqs, obs

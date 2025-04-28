@@ -333,7 +333,7 @@ class Eq:
 
     def compile(self, prog, mem, vt):
         dst = self.rhs.compile(prog, mem, vt)
-        prog.save_mem(dst, mem.add_index(self.lhs.name))
+        prog.save_mem(dst, mem.index(self.lhs.name))
 
 
 class Model:
@@ -361,9 +361,7 @@ class Model:
         for eq in self.eqs:
             eq.compile(prog, mem, vt)
 
-        idx = mem.add_index(y.name)
-
-        print(mem.names)
+        idx = mem.index(y.name)
 
         prog.append_epilogue(idx)
         prog.append_text_section(mem.consts, vt.vt())

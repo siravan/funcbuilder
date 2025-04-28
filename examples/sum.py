@@ -12,7 +12,6 @@ for i in range(10):
 
 f = B.compile(s)
 
-print(f.compiler.mem.names)
-print(f.compiler.dumps())
+# print(f.compiler.dumps())
 
 print(f(*[i for i in range(10)]))

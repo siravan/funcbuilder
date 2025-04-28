@@ -16,13 +16,13 @@ def compile_func(states, eqs):
 
     if not isinstance(eqs, list):
         B, _ = FuncBuilder(*states)
-        lowering.lower(B, eqs)
-        return B.compile()
+        r = lowering.lower(B, eqs)
+        return B.compile(r)
 
     fs = []
     for eq in eqs:
         B, _ = FuncBuilder(*states)
-        lowering.lower(B, eq)
-        fs.append(B.compile())
+        r = lowering.lower(B, eq)
+        fs.append(B.compile(r))
 
     return lambda *xs: [f(*xs) for f in fs]
