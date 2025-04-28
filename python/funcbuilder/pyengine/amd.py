@@ -431,7 +431,7 @@ class AmdSysVStack:
 
     def frame_size(self):
         # cap = self.mem.stack_size + min(self.mem.count_states, 8) + self.mem.count_obs
-        cap = min(self.mem.count_states, 8) + self.mem.count_obs
+        cap = min(self.mem.count_states, 8) + self.mem.count_obs + self.mem.COUNT_SPILLS
         pad = cap & 1
         return 8 * (cap + pad)
 
@@ -454,7 +454,7 @@ class AmdWindowsStack:
 
     def frame_size(self):
         # cap = self.mem.stack_size + self.mem.count_obs
-        cap = self.mem.count_obs
+        cap = self.mem.count_obs + self.mem.COUNT_SPILLS
         pad = cap & 1
         return 8 * (cap + pad)
 

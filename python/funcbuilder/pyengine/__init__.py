@@ -46,7 +46,10 @@ class Memory:
             self.names.append(f"#{i}")
 
         self.first_obs = len(self.names)
-        self.count_obs = 0
+        self.count_obs = len(model.obs)
+
+        for var in model.obs:
+            self.names.append(var.name)
 
     def index(self, name):
         if isinstance(name, tree.Var):
@@ -238,8 +241,8 @@ class PyCompiler:
         self.mem = Memory(model)
         self.vt = VirtualTable()
         self.prog = self.assembler(ty)(self.mem)
-        idx = self.mem.add_index(y)
-        model.compile(idx, self.prog, self.mem, self.vt)
+        
+        model.compile(y, self.prog, self.mem, self.vt)
 
         if sig == None:
             sig = [ctypes.c_double for _ in range(self.mem.count_states + 1)]

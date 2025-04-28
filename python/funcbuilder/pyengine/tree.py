@@ -355,11 +355,15 @@ class Model:
             self.reg = max(self.reg, eq.alloc(True))
         return self.reg
 
-    def compile(self, idx, prog, mem, vt):
+    def compile(self, y, prog, mem, vt):
         self.alloc(True)
 
         for eq in self.eqs:
             eq.compile(prog, mem, vt)
+
+        idx = mem.add_index(y.name)
+
+        print(mem.names)
 
         prog.append_epilogue(idx)
         prog.append_text_section(mem.consts, vt.vt())

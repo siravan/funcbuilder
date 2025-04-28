@@ -36,7 +36,6 @@ class Block:
                     merges.get(rhs.left, rhs.left),
                     merges.get(rhs.right, rhs.right),
                 )
-                p.idx = rhs.idx
             elif isinstance(eq.rhs, tree.Var):
                 p = merges.get(rhs, rhs)
             else:
@@ -57,9 +56,10 @@ class Block:
 
 
 class Phi:
-    def __init__(self, parent):
+    def __init__(self, parent, var):
         self.parent = parent
-        self.var = None
+        self.var = var
+        self.name = var.name
 
     def add_incoming(self, a):
         self.parent.add_block()  # needed based on the mandelbrot example
@@ -136,11 +136,12 @@ class Builder:
         rhs = tree.Binary(op, a, b)
         return self.new_var(rhs)
 
-    def phi(self, val=None):
-        p = Phi(self)
-        if val is not None:
-            p.add_incoming(val)
-        return p            
+    def phi(self, a=None):
+        if a is None:
+            a = tree.Const(0.0)
+        else:
+            a = self.prep(a)
+        return Phi(self, self.new_var(a))           
 
     def fadd(self, *a):
         if len(a) == 1:
@@ -373,11 +374,11 @@ class Builder:
             if isinstance(y, Phi):
                 y = y.var
 
-            eqs = self.coalesce(y)
+            eqs, obs = self.coalesce(y)
 
             model = tree.Model(
                 self.states,  # states
-                self.obs,  # obs
+                obs,  # obs
                 eqs,  # eqs
             )
 
@@ -398,4 +399,4 @@ class Builder:
             eqs.append(tree.Label(b.label))
             eqs.extend(b.arborize(externals))
 
-        return eqs
+        return eqs, externals
