@@ -16,17 +16,12 @@ x = B.complex(re, im)
 
 B.set_label("loop")
 
-# x2 = B.cmul(x, x)
-
 q1 = B.square(re)
 q2 = B.square(im)
 q3 = B.fadd(q1, q2)
 
 c1 = B.gt(q3, 4.0)
 B.cbranch(c1, "done")
-
-# c2 = B.gt(im, 4.0)
-# B.cbranch(c2, "done")
 
 x2 = B.cmul(x, x)
 r1 = B.cadd(x2, c)

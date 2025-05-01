@@ -41,7 +41,7 @@ def reg_index(reg):
     elif reg == "r15":
         return 15
     else:
-        raise Error("unregnized register")
+        raise ValueError("unregnized register")
 
 
 class Amd(assembler.Assembler):
