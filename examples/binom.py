@@ -14,8 +14,8 @@ def binom(B, n, k):
         return r3
 
 
-n = 15
-k = 8
+n = 5
+k = 2
 
 r = binom(B, n, k)
 f = B.compile(r)

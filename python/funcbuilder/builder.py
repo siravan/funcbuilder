@@ -381,6 +381,12 @@ class Builder:
         r11 = self.dfiv(r10, r3)
 
         return Complex(r7, r11)
+        
+    def cnorm2(self, a):
+        r1 = self.square(a.re)
+        r2 = self.square(a.im)
+        r3 = self.fadd(r1, r2)
+        return r3
 
     def compile(self, y, sig=None):
         try:

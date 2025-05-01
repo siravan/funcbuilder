@@ -31,7 +31,7 @@ p = B.fmul(s, 4.0)
 
 f = B.compile(p)
 
-# print(f.compiler.dumps())
+print(f.compiler.dumps())
 
 print("func = \t", f())
 print("math = \t", math.pi)

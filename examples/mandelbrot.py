@@ -16,14 +16,11 @@ x = B.complex(re, im)
 
 B.set_label("loop")
 
-x2 = B.cmul(x, x)
-
-c1 = B.gt(re, 4.0)
+norm = B.cnorm2(x)
+c1 = B.gt(norm, 4.0)
 B.cbranch(c1, "done")
 
-c2 = B.gt(im, 4.0)
-B.cbranch(c2, "done")
-
+x2 = B.cmul(x, x)
 r1 = B.cadd(x2, c)
 
 re.add_incoming(r1.re)

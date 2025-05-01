@@ -3,6 +3,26 @@ import numbers
 from sympy import *
 
 
+class Cache:
+    def __init__(self, prog):
+        self.regs = [None] * (prog.first_shadow + prog.count_shadows)        
+        
+    def reset(self):
+        print('reset')
+        self.regs = [None] * len(self.regs)        
+        
+    def assign(self, dst, var):
+        print(dst, ' := ', var)
+        for i in range(len(self.regs)):
+            if self.regs[i] == var:
+                self.regs[i] = None
+        self.regs[dst] = var
+        print(self.regs)
+        
+    def find(self, var):
+        return self.regs.index(var)
+        
+
 class Unary:
     def __init__(self, op, arg):
         self.op = op
@@ -16,8 +36,9 @@ class Unary:
         self.reg = self.arg.alloc(True)
         return self.reg
 
-    def compile(self, prog, mem, vt):
-        dst = self.arg.compile(prog, mem, vt)
+    def compile(self, prog, mem, vt, cache):
+        dst = self.arg.compile(prog, mem, vt, cache)
+        cache.assign(dst, None)
 
         assert dst != 1 and dst < prog.first_shadow + prog.count_shadows
 
@@ -39,12 +60,13 @@ class Unary:
             try:
                 if dst != 0:
                     prog.fmov(0, dst)
+                    cache.assign(dst, None)
                 prog.call_unary(0, vt.find(self.op))
                 return 0
             except:
-                raise ValueError(f"Unary operator {self.op} not found")
+                raise ValueError(f"Unary operator {self.op} not found")       
 
-        return dst
+        return dst        
 
 
 class Binary:
@@ -71,7 +93,7 @@ class Binary:
         self.reg = l + 1 if l == r else max(l, r)
         return self.reg
 
-    def compile(self, prog, mem, vt):
+    def compile(self, prog, mem, vt, cache):
         """
         compile performs the second pass of the Sethi–Ullman algorithm.
 
@@ -105,9 +127,10 @@ class Binary:
 
         # the physical register holding the result of the current operation
         dst = prog.first_shadow + self.reg if self.reg < prog.count_shadows else 0
+        cache.assign(dst, None)
 
-        if self.right.reg == self.left.reg:
-            l = self.left.compile(prog, mem, vt)
+        if self.right.reg == self.left.reg:        
+            l = self.left.compile(prog, mem, vt, cache)
 
             # we need to spill the result of the left limb if it is in the
             # last physical reg to open space for the result of the right limb
@@ -118,36 +141,36 @@ class Binary:
                 prog.fmov(l + 1, l)  # to prevent collision with r
                 l = l + 1
 
-            r = self.right.compile(prog, mem, vt)
+            r = self.right.compile(prog, mem, vt, cache)
 
             if l == 0:
                 prog.load_mem(1, t)
                 l = 1
         elif self.right.reg > self.left.reg:
-            r = self.right.compile(prog, mem, vt)
+            r = self.right.compile(prog, mem, vt, cache)
 
             # we don't need to check with last or move to a higher register
             # because r is either 0 or strictly greater than l
             if r == 0:
                 prog.save_mem(r, t)
 
-            l = self.left.compile(prog, mem, vt)
+            l = self.left.compile(prog, mem, vt, cache)
 
             if r == 0:
                 prog.load_mem(1, t)
                 r = 1  # 1 not 0 because l can be 0
         else:  # self.right.reg < self.left.reg:
-            l = self.left.compile(prog, mem, vt)
+            l = self.left.compile(prog, mem, vt, cache)
 
             if l == 0:
                 prog.save_mem(l, t)
 
-            r = self.right.compile(prog, mem, vt)
+            r = self.right.compile(prog, mem, vt, cache)
 
             if l == 0:
                 prog.load_mem(1, t)
-                l = 1
-
+                l = 1        
+        
         return self.emit(dst, l, r, prog, mem, vt)
 
     def emit(self, dst, l, r, prog, mem, vt):
@@ -185,6 +208,7 @@ class Binary:
             try:
                 if l != 0:
                     prog.fmov(0, l)
+                    cache.assign(0, None)
                 prog.call_binary(0, r, vt.find(self.op))
                 return 0
             except:
@@ -204,7 +228,7 @@ class Call:
     def alloc(self, lefty):
         return 0
 
-    def compile(self, prog, mem, vt):
+    def compile(self, prog, mem, vt, cache):
         args = self.args
 
         if len(args) == 1:
@@ -255,10 +279,11 @@ class Const:
         self.reg = 0 if lefty else 1
         return self.reg
 
-    def compile(self, prog, mem, vt):
+    def compile(self, prog, mem, vt, cache):
         dst = prog.first_shadow + self.reg
         prog.load_const(dst, mem.constant(self.val))
-        return dst
+        cache.assign(dst, self.val)
+        return dst        
 
 
 class Var:
@@ -273,10 +298,20 @@ class Var:
         self.reg = 0 if lefty else 1
         return self.reg
 
-    def compile(self, prog, mem, vt):
-        dst = prog.first_shadow + self.reg
+    def compile(self, prog, mem, vt, cache):            
+        dst = prog.first_shadow + self.reg      
+
+        try:
+            l = cache.find(self.name)
+            if False and l == dst:                
+                print('?', self.name, ' -> ', l)
+                return dst
+        except:
+            pass
+    
         prog.load_mem(dst, mem.index(self.name))
-        return dst
+        cache.assign(dst, self.name)
+        return dst        
 
 
 class Label:
@@ -289,7 +324,8 @@ class Label:
     def alloc(self, lefty):
         return 0
 
-    def compile(self, prog, mem, vt):
+    def compile(self, prog, mem, vt, cache):
+        cache.reset()
         prog.set_label(self.label)
         return 0
 
@@ -307,12 +343,12 @@ class Branch:
     def alloc(self, lefty):
         return 0
 
-    def compile(self, prog, mem, vt):
+    def compile(self, prog, mem, vt, cache):
         if self.cond == True:
             prog.branch(self.true_label)
             return
 
-        dst = self.cond.compile(prog, mem, vt)
+        dst = self.cond.compile(prog, mem, vt, cache)        
 
         if self.false_label is None:
             prog.branch_if(dst, self.true_label)
@@ -331,10 +367,12 @@ class Eq:
     def alloc(self, lefty):
         return self.rhs.alloc(True)
 
-    def compile(self, prog, mem, vt):
-        dst = self.rhs.compile(prog, mem, vt)
+    def compile(self, prog, mem, vt, cache):
+        dst = self.rhs.compile(prog, mem, vt, cache)        
         prog.save_mem(dst, mem.index(self.lhs.name))
-
+        cache.assign(dst, self.lhs.name)   
+        return dst          
+                    
 
 class Model:
     def __init__(self, states, obs, eqs):
@@ -357,11 +395,17 @@ class Model:
 
     def compile(self, y, prog, mem, vt):
         self.alloc(True)
+        
+        cache = Cache(prog)
 
         for eq in self.eqs:
-            eq.compile(prog, mem, vt)
+            eq.compile(prog, mem, vt, cache)
 
-        idx = mem.index(y.name)
+        v = Var(y.name)
+        idx = v.compile(prog, mem, vt, cache)
+        if idx != 0:
+            prog.fmov(0, idx)
+        # idx = mem.index(y.name)
 
         prog.append_epilogue(idx)
         prog.append_text_section(mem.consts, vt.vt())

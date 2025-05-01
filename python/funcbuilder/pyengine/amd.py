@@ -41,7 +41,7 @@ def reg_index(reg):
     elif reg == "r15":
         return 15
     else:
-        raise Error("unregnized register")
+        raise ValueError("unregnized register")
 
 
 class Amd(assembler.Assembler):
@@ -633,7 +633,7 @@ class AmdIR:
         self.amd.end_prepend()
 
     def append_epilogue(self, idx):
-        self.load_mem(0, idx)
+        # self.load_mem(0, idx)
         self.amd.vzeroupper()
         self.amd.add_rsp(self.stack.frame_size())
         self.amd.pop("rbp")
