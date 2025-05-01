@@ -37,6 +37,8 @@ B.set_label("done")
 r4 = B.fsub(50, n)
 f = B.compile(r4)
 
+# print(f.compiler.dumps())
+
 A, B = np.meshgrid(np.arange(-2, 1, 0.002), np.arange(-1.5, 1.5, 0.002))
 H = np.zeros_like(A)
 

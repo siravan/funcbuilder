@@ -8,16 +8,13 @@ class Cache:
         self.regs = [None] * (prog.first_shadow + prog.count_shadows)        
         
     def reset(self):
-        print('reset')
         self.regs = [None] * len(self.regs)        
         
     def assign(self, dst, var):
-        print(dst, ' := ', var)
         for i in range(len(self.regs)):
             if self.regs[i] == var:
                 self.regs[i] = None
         self.regs[dst] = var
-        print(self.regs)
         
     def find(self, var):
         return self.regs.index(var)
@@ -302,14 +299,13 @@ class Var:
         dst = prog.first_shadow + self.reg      
 
         try:
-            l = cache.find(self.name)
-            if False and l == dst:                
-                print('?', self.name, ' -> ', l)
+            l = cache.find(self.name)            
+            if l == dst:
                 return dst
+            prog.fmov(dst, l)
         except:
-            pass
-    
-        prog.load_mem(dst, mem.index(self.name))
+            prog.load_mem(dst, mem.index(self.name))
+            
         cache.assign(dst, self.name)
         return dst        
 
@@ -354,6 +350,8 @@ class Branch:
             prog.branch_if(dst, self.true_label)
         else:
             prog.branch_if_else(dst, self.true_label, self.false_label)
+            
+        return dst            
 
 
 class Eq:
