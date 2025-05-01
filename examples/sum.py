@@ -1,6 +1,6 @@
 from funcbuilder import FuncBuilder
 
-N = 3 
+N = 12
 
 B, X = FuncBuilder(*[f'x{i}' for i in range(N)])
 
@@ -12,6 +12,6 @@ for i in range(N):
 
 f = B.compile(s)
 
-print(f.compiler.dumps())
+# print(f.compiler.dumps())
 
 print(f(*[i for i in range(N)]))
