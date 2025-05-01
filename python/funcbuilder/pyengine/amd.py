@@ -632,8 +632,7 @@ class AmdIR:
 
         self.amd.end_prepend()
 
-    def append_epilogue(self, idx):
-        self.load_mem(0, idx)
+    def append_epilogue(self):
         self.amd.vzeroupper()
         self.amd.add_rsp(self.stack.frame_size())
         self.amd.pop("rbp")

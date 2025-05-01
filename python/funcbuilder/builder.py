@@ -92,7 +92,7 @@ class Phi:
         self.name = var.name
 
     def add_incoming(self, a):
-        # self.parent.add_block()  # needed based on the mandelbrot example
+        self.parent.add_block()  # needed based on the mandelbrot example
         a = self.parent.prep(a)
         self.parent.block.eqs.append(tree.Eq(self.var, a))
         

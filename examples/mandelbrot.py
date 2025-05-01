@@ -16,14 +16,19 @@ x = B.complex(re, im)
 
 B.set_label("loop")
 
-x2 = B.cmul(x, x)
+# x2 = B.cmul(x, x)
 
-c1 = B.gt(re, 4.0)
+q1 = B.square(re)
+q2 = B.square(im)
+q3 = B.fadd(q1, q2)
+
+c1 = B.gt(q3, 4.0)
 B.cbranch(c1, "done")
 
-c2 = B.gt(im, 4.0)
-B.cbranch(c2, "done")
+# c2 = B.gt(im, 4.0)
+# B.cbranch(c2, "done")
 
+x2 = B.cmul(x, x)
 r1 = B.cadd(x2, c)
 
 re.add_incoming(r1.re)
@@ -39,6 +44,8 @@ B.set_label("done")
 
 r4 = B.fsub(50, n)
 f = B.compile(r4)
+
+# print(f.compiler.dumps())
 
 A, B = np.meshgrid(np.arange(-2, 1, 0.002), np.arange(-1.5, 1.5, 0.002))
 H = np.zeros_like(A)

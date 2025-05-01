@@ -334,6 +334,7 @@ class Eq:
     def compile(self, prog, mem, vt):
         dst = self.rhs.compile(prog, mem, vt)
         prog.save_mem(dst, mem.index(self.lhs.name))
+        return dst
 
 
 class Model:
@@ -359,11 +360,22 @@ class Model:
         self.alloc(True)
 
         for eq in self.eqs:
-            eq.compile(prog, mem, vt)
+            if isinstance(eq, Eq):
+                lhs = eq.lhs
+                dst = eq.compile(prog, mem, vt) 
+            else:                
+                lhs = None
+                dst = eq.compile(prog, mem, vt)
+            
+        # check to see whether the left hand side of the last equation
+        # is the result. If so, we just copy the register.            
+        if lhs == y:
+            if dst != 0:
+                prog.fmov(0, dst)
+        else:
+            prog.load_mem(0, mem.index(y.name))                
 
-        idx = mem.index(y.name)
-
-        prog.append_epilogue(idx)
+        prog.append_epilogue()
         prog.append_text_section(mem.consts, vt.vt())
         # we need to prepend and not append prologue
         # because we don't know the stack size until

@@ -5,7 +5,7 @@ x = symbols("x")
 
 x0 = 0.0001
 
-print(f"depth\trbuilder\t\tlambdify")
+print(f"depth\tbuilder\t\tlambdify")
 
 for i in range(12):
     e = x**2 + x

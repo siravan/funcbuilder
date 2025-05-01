@@ -538,9 +538,8 @@ class ArmIR:
 
         self.arm.end_prepend()
 
-    def append_epilogue(self, idx):
+    def append_epilogue(self):
         top = self.stack.top_size()
-        self.load_mem(0, idx)
 
         if top < 4096:
             self.arm.add_imm("sp", "sp", top)
