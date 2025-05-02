@@ -355,15 +355,11 @@ class ArmStack:
         ns = self.mem.count_states
         nr = self.count_simd_args
 
-        print('idx = ', idx)
-
         if idx < ns:
             if idx < nr:
                 return 8 * idx
             else:
                 k = 8 * (2 + idx - nr) + self.top_size()  # 2 for fp and lr storage
-                print(hex(self.top_size()))
-                print('k = ', hex(k))
                 return k
         else:
             return 8 * (idx - max(0, ns - nr))
@@ -520,8 +516,7 @@ class ArmIR:
         self.arm.begin_prepend()
 
         top = self.stack.top_size()
-        print('top = ', hex(top))
-
+        
         self.arm.sub_imm("sp", "sp", 16)
         self.arm.str_x("lr", "sp", 0)
 
